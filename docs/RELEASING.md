@@ -6,7 +6,7 @@ which publishes a GitHub release with:
 
 | File | Contents |
 | ---- | -------- |
-| `piway_linux_arm64.tar.gz` | `piway` (dashboard embedded), `README.md`, `piway.service`, `config.example.yaml` |
+| `piway_linux_arm64.tar.gz` | `piway` (dashboard embedded), `LICENSE`, `THIRD_PARTY_NOTICES.txt`, `README.md`, `piway.service`, `config.example.yaml` |
 | `checksums.txt` | SHA-256 of the archive |
 
 Tags with a suffix are published as pre-releases.
@@ -26,7 +26,8 @@ The workflow then, on a native arm64 runner:
 3. Builds with `make dist VERSION=<tag>`.
 4. Verifies the archive against its checksum and runs the binary from it.
    `piway -version` must print exactly `piway <tag> (<commit>)`, `/healthz`
-   must report the tag, and `/` must serve the dashboard.
+   must report the tag, `/` must serve the dashboard, and the served
+   `/THIRD_PARTY_NOTICES.txt` must match the one in the archive.
 5. Records a signed build provenance attestation for the archive.
 6. Creates the release with notes generated from the merged pull requests.
 

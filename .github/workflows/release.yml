@@ -75,6 +75,9 @@ jobs:
           cd dist
           sha256sum -c checksums.txt
           tar -xzf piway_linux_arm64.tar.gz
+          # Licenses travel with the binary (MIT for piway, notices for the rest).
+          grep -q "MIT License" piway_linux_arm64/LICENSE
+          grep -q "IBM Plex" piway_linux_arm64/THIRD_PARTY_NOTICES.txt
 
           got=$(./piway_linux_arm64/piway -version)
           # PR runs check out a merge commit; the build stamps that commit.
@@ -91,6 +94,7 @@ jobs:
           for i in $(seq 1 50); do curl -fs http://127.0.0.1:18080/healthz >/dev/null && break; sleep 0.1; done
           curl -fs http://127.0.0.1:18080/healthz | grep -F "\"version\":\"$TAG\""
           curl -fs http://127.0.0.1:18080/ | grep -qi "<!doctype html>"
+          curl -fs http://127.0.0.1:18080/THIRD_PARTY_NOTICES.txt | cmp - piway_linux_arm64/THIRD_PARTY_NOTICES.txt
 
       - name: Attest build provenance
         if: env.PUBLISH == 'true'

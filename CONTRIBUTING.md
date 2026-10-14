@@ -139,6 +139,15 @@ Closes #10
   the types and run them directly.
 - Follow [web/DESIGN.md](web/DESIGN.md) once it exists: semantic tokens only, no raw colors in components.
 
+### Licenses
+
+piway is MIT-licensed. New dependencies must have a license compatible with
+that (MIT, ISC, BSD, Apache-2.0, OFL for fonts). `make build` generates
+`THIRD_PARTY_NOTICES.txt` from what is actually bundled and fails if a
+bundled package has no license file. If a package really ships none, keep
+its upstream license text in `web/licenses/` and add an `overrides` entry
+in `web/vite.config.ts`, with a comment saying where the text came from.
+
 ### Docs stay in sync
 
 | When you change | Update |

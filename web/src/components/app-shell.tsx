@@ -37,6 +37,10 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
           <a href="/design-system" className="underline-offset-4 hover:text-foreground hover:underline">
             Design system
           </a>
+          {/* Generated at build time (make build); absent on the dev server. */}
+          <a href="/THIRD_PARTY_NOTICES.txt" className="underline-offset-4 hover:text-foreground hover:underline">
+            Licenses
+          </a>
           {/* Last, so the link does not move when loaded content of unknown
               width (the version) arrives. */}
           {props.footer}
