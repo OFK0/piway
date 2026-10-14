@@ -3,7 +3,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/ofk0/piway/internal/version.Version=$(VERSION) \
            -X github.com/ofk0/piway/internal/version.Commit=$(COMMIT)
 
-.PHONY: build build-go web web-lint web-test run test test-race lint fmt clean
+.PHONY: build build-go dist web web-lint web-test run test test-race lint fmt clean
 
 # build: the dashboard first, then a binary that embeds it (internal/webui).
 # build-go: the binary alone, serving the API only (no Node needed).
@@ -14,6 +14,26 @@ build: web
 
 build-go:
 	go build -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/piway ./cmd/piway
+
+# dist: the release archive for the Pi, plus its checksum (docs/RELEASING.md).
+# The archive is reproducible: the same commit always gives the same bytes,
+# so anyone can rebuild it and compare the checksum. Timestamps come from
+# the commit, owners are zeroed, files are sorted, and gzip stores no name
+# or time; -trimpath keeps the build machine's paths out of the binary.
+DIST       := dist
+DIST_NAME  := piway_linux_arm64
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
+
+dist: web
+	rm -rf $(DIST) && mkdir -p $(DIST)/$(DIST_NAME)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -tags embedui \
+		-ldflags "$(LDFLAGS)" -o $(DIST)/$(DIST_NAME)/piway ./cmd/piway
+	cp README.md deploy/systemd/piway.service deploy/config.example.yaml $(DIST)/$(DIST_NAME)/
+	tar --sort=name --mtime=@$(SOURCE_DATE_EPOCH) --owner=0 --group=0 --numeric-owner --mode=go-w \
+		-C $(DIST) -cf - $(DIST_NAME) | gzip -9n > $(DIST)/$(DIST_NAME).tar.gz
+	rm -rf $(DIST)/$(DIST_NAME)
+	cd $(DIST) && sha256sum $(DIST_NAME).tar.gz > checksums.txt
+	@cat $(DIST)/checksums.txt
 
 # npm ci only reruns when the lockfile changes.
 web/node_modules/.package-lock.json: web/package-lock.json
@@ -46,4 +66,4 @@ fmt:
 	gofmt -w .
 
 clean:
-	rm -rf bin internal/webui/dist
+	rm -rf bin dist internal/webui/dist
