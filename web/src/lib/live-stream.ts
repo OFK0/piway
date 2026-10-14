@@ -48,8 +48,10 @@ export interface LiveStreamOptions {
 
 // Reconnect delays for a LAN dashboard: start under a second, never wait
 // more than 5 s, so a restarted piway is picked up within a few seconds.
-// A handful of dashboards cannot overload the Pi at that rate.
-const defaultBackoff = () => new Backoff({ base: 500, cap: 5_000 })
+// A handful of dashboards cannot overload the Pi at that rate, so a little
+// jitter is enough, and the header's countdown stays regular: 1, 1, 2, 4,
+// then 5 s per attempt instead of a random 0–5 s each time.
+const defaultBackoff = () => new Backoff({ base: 500, cap: 5_000, jitter: 0.2 })
 
 // If no snapshot arrives for this long (or 3 intervals, whichever is
 // longer), the connection is presumed dead even if the socket has not

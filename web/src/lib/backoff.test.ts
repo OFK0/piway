@@ -61,8 +61,25 @@ describe('Backoff', () => {
     assert.equal(b.ceiling(), 500)
   })
 
+  it('keeps delays within the jittered share of the ceiling', () => {
+    const draws = [0, 0.5, 0.999999]
+    const b = new Backoff({ base: 1000, cap: 1000, jitter: 0.2, random: () => draws.shift()! })
+    assert.equal(b.next(), 800)
+    assert.equal(b.next(), 900)
+    assert.equal(b.next(), 999)
+  })
+
+  it('grows steadily with small jitter', () => {
+    // The countdown a user sees after each failed attempt, in whole seconds.
+    const b = new Backoff({ base: 500, cap: 5_000, jitter: 0.2, random: () => 0.5 })
+    const seconds = Array.from({ length: 8 }, () => Math.ceil(b.next() / 1000))
+    assert.deepEqual(seconds, [1, 1, 2, 4, 5, 5, 5, 5])
+  })
+
   it('rejects impossible options', () => {
     assert.throws(() => new Backoff({ base: 0, cap: 100 }), RangeError)
     assert.throws(() => new Backoff({ base: 200, cap: 100 }), RangeError)
+    assert.throws(() => new Backoff({ base: 100, cap: 100, jitter: 0 }), RangeError)
+    assert.throws(() => new Backoff({ base: 100, cap: 100, jitter: 1.5 }), RangeError)
   })
 })

@@ -23,6 +23,7 @@ import { Skeleton, SkeletonText } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useHealth } from '@/hooks/use-health'
 import { useLive } from '@/hooks/use-live'
+import { useCountdown } from '@/hooks/use-countdown'
 import { useNow } from '@/hooks/use-now'
 import { byteScale, bytes, count, percent, rate } from '@/format'
 import { cpuStatus, hardwareAlerts, missingReason, temperatureStatus, usageStatus } from '@/lib/metrics'
@@ -143,8 +144,7 @@ function ChartsSkeleton() {
 }
 
 function Unreachable(props: { retryAt: number | null; onRetry: () => void }) {
-  const now = useNow(true)
-  const seconds = props.retryAt ? Math.max(0, Math.ceil((props.retryAt - now) / 1000)) : 0
+  const seconds = useCountdown(props.retryAt)
   return (
     <Empty className="border">
       <EmptyHeader>
