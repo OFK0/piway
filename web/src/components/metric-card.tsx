@@ -1,6 +1,7 @@
 import type { Icon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
+import { AnimatedNumber } from '@/components/animated-number'
 import { StatusBadge } from '@/components/status-badge'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -12,8 +13,10 @@ import { cn } from '@/lib/utils'
 export interface MetricCardProps {
   title: string
   icon: Icon
-  /** Formatted number, or null when the metric is missing. */
-  value: string | null
+  /** The number, or null when the metric is missing. Changes animate. */
+  value: number | null
+  /** Formats the number without its unit. Default: one decimal. */
+  format?: (n: number) => string
   unit?: string
   /** Shown instead of the value when it is null. */
   missingReason?: string
@@ -47,7 +50,7 @@ export function MetricCard(props: MetricCardProps) {
           <Missing reason={props.missingReason} />
         ) : (
           <p className="flex items-baseline gap-1">
-            <span className="type-metric">{props.value}</span>
+            <AnimatedNumber value={props.value} format={props.format ?? oneDecimal} className="type-metric" />
             {props.unit && <span className="type-label text-muted-foreground">{props.unit}</span>}
           </p>
         )}
@@ -63,6 +66,8 @@ export function MetricCard(props: MetricCardProps) {
     </Card>
   )
 }
+
+const oneDecimal = (n: number) => n.toFixed(1)
 
 function Missing({ reason }: { reason?: string }) {
   return (
