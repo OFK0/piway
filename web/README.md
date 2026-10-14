@@ -1,6 +1,17 @@
 # piway dashboard
 
-React + TypeScript + Vite. Built output goes to `dist/`.
+React + TypeScript + Vite, with shadcn/ui (Base UI) and Tailwind CSS v4.
+Built output goes to `dist/`.
+
+## Design system
+
+[DESIGN.md](DESIGN.md) is the spec: colors, type, shape, states, charts and
+the do's and don'ts. Tokens live in `src/index.css`, components in
+`src/components/ui`. The rendered reference is at `/design-system`
+(link in the footer).
+
+Add a component with `npx shadcn@latest add <name>`, then restyle it to the
+spec and show it on the design system page.
 
 ```sh
 npm ci
