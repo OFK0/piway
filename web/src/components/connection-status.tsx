@@ -2,15 +2,14 @@ import { ArrowsClockwiseIcon, WifiSlashIcon } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { useNow } from '@/hooks/use-now'
+import { useCountdown } from '@/hooks/use-countdown'
 import type { LiveState } from '@/lib/live-stream'
 
 // The live indicator (DESIGN.md › Principles: raspberry means "look here").
 // Text always states the connection, so it never relies on the dot's color.
 export function ConnectionStatus({ state, onRetry }: { state: LiveState; onRetry: () => void }) {
   const reconnecting = state.status === 'reconnecting'
-  const now = useNow(reconnecting)
-  const seconds = state.retryAt ? Math.max(0, Math.ceil((state.retryAt - now) / 1000)) : 0
+  const seconds = useCountdown(reconnecting ? state.retryAt : null)
 
   return (
     <div className="flex items-center gap-2 type-label">
