@@ -18,6 +18,7 @@ type Builds interface {
 	Get(id string) (deploy.Build, error)
 	Cancel(id string) error
 	Follow(id string) (past []byte, next <-chan []byte, stop func(), err error)
+	Rollback(app string) (deploy.Build, error)
 }
 
 func buildRoutes(mux *http.ServeMux, b Builds) {
@@ -35,6 +36,7 @@ func buildRoutes(mux *http.ServeMux, b Builds) {
 	mux.HandleFunc("GET /api/v1/builds/{id}/log", h(buildLog))
 	mux.HandleFunc("GET /api/v1/builds/{id}/log/stream", h(streamBuildLog))
 	mux.HandleFunc("POST /api/v1/builds/{id}/cancel", h(cancelBuild))
+	mux.HandleFunc("POST /api/v1/apps/{name}/rollback", h(rollback))
 }
 
 func listBuilds(w http.ResponseWriter, _ *http.Request, b Builds) {
@@ -79,6 +81,20 @@ func cancelBuild(w http.ResponseWriter, r *http.Request, b Builds) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancelling"})
+}
+
+func rollback(w http.ResponseWriter, r *http.Request, b Builds) {
+	build, err := b.Rollback(r.PathValue("name"))
+	switch {
+	case errors.Is(err, deploy.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no app with that name has been deployed")
+	case errors.Is(err, deploy.ErrNoRollback):
+		writeError(w, http.StatusConflict, "nothing to roll back to: the app has no earlier successful build")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, build)
+	}
 }
 
 func writeBuildError(w http.ResponseWriter, err error) {

@@ -70,6 +70,7 @@ changes that span the whole repository.
 | `docker` | `internal/docker` (Engine API client) |
 | `webhook` | `internal/webhook` (GitHub push webhooks) |
 | `pipeline` | `internal/deploy` (build pipeline) |
+| `router` | `internal/router` (stable app addresses) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |

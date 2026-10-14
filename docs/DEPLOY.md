@@ -74,15 +74,47 @@ A queued deploy answers `202 {"status":"queued"}`.
    Caddy integration (#24).
 3. **Build** the image `piway/<name>:<commit>` with BuildKit for
    `linux/arm64`, natively on the Pi.
-4. **Release**: remove the app's previous container, start
-   `piway-<name>` from the new image with `run.env`, the secrets,
-   `run.command` and the limits, published on `127.0.0.1:<port>`, and
-   check it is still running after 5 seconds. Until #25 there is a short
-   gap between the old container stopping and the new one starting, and no
-   automatic rollback.
+4. **Release** without downtime (blue/green on one host):
+   1. Start the new container next to the one serving now, with `run.env`,
+      the secrets, `run.command` and the limits, on a port Docker picks.
+   2. Check its health there (`run.health`, below).
+   3. If it never becomes healthy, remove it: **the previous version keeps
+      serving** and the build fails with the reason.
+   4. If it is healthy, switch the app's route to it in one step, let the
+      old container finish requests in flight for 2 seconds, then stop it
+      (SIGTERM, SIGKILL after 10 s) and remove it.
+   5. Keep the app's 3 newest images and delete older ones.
 
-The port is derived from the app name (20000–29999), so it stays the same
-across deploys; Caddy (#24) will proxy `<name>.<domain>` to it.
+### Routes
+
+Each app has a stable address, `127.0.0.1:<port>`, with the port derived
+from its name (20000–29999). piway listens there itself and proxies to
+whichever container is current; switching versions only changes where the
+proxy points, so no request is refused. Caddy (#24) will proxy
+`<name>.<domain>` to this address.
+
+The trade-off: apps are reachable only while piway runs. When piway
+starts, it finds the running app containers and serves them again.
+
+### Health checks
+
+`run.health` ([MANIFEST.md](MANIFEST.md)) decides when a new version may
+take traffic: `GET <path>` on the new container must answer `2xx` or `3xx`.
+Checks run every `interval` with a `timeout` each; failures during
+`start_period` do not count, and after it 3 failures in a row reject the
+version. A container that exits fails at once.
+
+### Rollback
+
+```sh
+curl -s -X POST localhost:8080/api/v1/apps/<name>/rollback
+```
+
+re-releases the image the app ran before its current one, with the
+`piway.yaml` it was built with: no fetch, no rebuild, the same health check
+and switch as a deploy. It is queued and logged like a build (`"kind":
+"rollback"`). Rolling back twice returns to the newer version. Only the
+last 3 images per app are kept.
 
 ### Queue
 

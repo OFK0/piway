@@ -32,24 +32,37 @@ func (s State) Done() bool { return s == Succeeded || s == Failed || s == Cancel
 // Build is one deploy attempt. It is persisted as <id>.json next to its
 // log, <id>.log, so the history survives restarts.
 type Build struct {
-	ID       string    `json:"id"`
-	App      string    `json:"app,omitempty"` // from piway.yaml, known once fetched
-	Repo     string    `json:"repo"`
-	Branch   string    `json:"branch"`
-	Commit   string    `json:"commit"`
-	Pusher   string    `json:"pusher,omitempty"`
-	CloneURL string    `json:"clone_url"`
-	State    State     `json:"state"`
-	Image    string    `json:"image,omitempty"`
-	Error    string    `json:"error,omitempty"`
-	Queued   time.Time `json:"queued_at"`
-	Started  time.Time `json:"started_at,omitzero"`
-	Finished time.Time `json:"finished_at,omitzero"`
+	ID       string `json:"id"`
+	App      string `json:"app,omitempty"` // from piway.yaml, known once fetched
+	Repo     string `json:"repo"`
+	Branch   string `json:"branch"`
+	Commit   string `json:"commit"`
+	Pusher   string `json:"pusher,omitempty"`
+	CloneURL string `json:"clone_url"`
+	State    State  `json:"state"`
+	// Kind is "rollback" for a rollback to RollbackOf's image; empty for a
+	// build from a push.
+	Kind       string    `json:"kind,omitempty"`
+	RollbackOf string    `json:"rollback_of,omitempty"`
+	Image      string    `json:"image,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	Queued     time.Time `json:"queued_at"`
+	Started    time.Time `json:"started_at,omitzero"`
+	Finished   time.Time `json:"finished_at,omitzero"`
 }
 
 // key groups builds that replace each other: the same branch of the same
-// repository (GitHub names are case-insensitive).
-func (b *Build) key() string { return strings.ToLower(b.Repo) + "@" + b.Branch }
+// repository (GitHub names are case-insensitive). Rollbacks of an app
+// replace each other, not pushes.
+func (b *Build) key() string {
+	if b.Kind == KindRollback {
+		return "rollback:" + b.App
+	}
+	return strings.ToLower(b.Repo) + "@" + b.Branch
+}
+
+// KindRollback marks a build that re-releases an earlier image.
+const KindRollback = "rollback"
 
 // ErrNotFound is returned for an unknown build id.
 var ErrNotFound = errors.New("deploy: no such build")
@@ -59,6 +72,10 @@ type store struct{ dir string }
 
 func (s store) metaPath(id string) string { return filepath.Join(s.dir, id+".json") }
 func (s store) logPath(id string) string  { return filepath.Join(s.dir, id+".log") }
+
+// manifestPath keeps the piway.yaml a build ran with, so a rollback to it
+// needs neither the repository nor a rebuild.
+func (s store) manifestPath(id string) string { return filepath.Join(s.dir, id+".piway.yaml") }
 
 func (s store) save(b *Build) error {
 	data, err := json.MarshalIndent(b, "", "  ")
@@ -99,4 +116,5 @@ func (s store) load() ([]*Build, error) {
 func (s store) remove(id string) {
 	os.Remove(s.metaPath(id))
 	os.Remove(s.logPath(id))
+	os.Remove(s.manifestPath(id))
 }

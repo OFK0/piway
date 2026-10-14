@@ -127,10 +127,16 @@ func (p *Pipeline) Deploy(r webhook.Request) error {
 		ID: p.newID(r.Commit), Repo: r.Repo, Branch: r.Branch, Commit: r.Commit,
 		Pusher: r.Pusher, CloneURL: r.CloneURL, State: Queued, Queued: p.opts.now(),
 	}
+	return p.enqueueLocked(b)
+}
+
+// enqueueLocked records b and queues it, replacing a pending build with
+// the same key. Caller holds p.mu.
+func (p *Pipeline) enqueueLocked(b *Build) error {
 	key := b.key()
 	old, replacing := p.pending[key]
 	if !replacing && len(p.queue) >= maxQueued {
-		return fmt.Errorf("deploy: %d branches already waiting", len(p.queue))
+		return fmt.Errorf("deploy: %d builds already waiting", len(p.queue))
 	}
 	if err := p.store.save(b); err != nil {
 		return err
@@ -143,7 +149,7 @@ func (p *Pipeline) Deploy(r webhook.Request) error {
 		p.queue = append(p.queue, key)
 	}
 	p.pending[key] = b.ID
-	p.log.Info("build queued", "build", b.ID, "repo", b.Repo, "branch", b.Branch)
+	p.log.Info("build queued", "build", b.ID, "repo", b.Repo, "branch", b.Branch, "kind", b.Kind)
 	select {
 	case p.wake <- struct{}{}:
 	default:
@@ -224,6 +230,9 @@ func (p *Pipeline) run(parent context.Context, id string) {
 	defer p.mu.Unlock()
 	b.App, b.Image = app, image
 	switch {
+	case err == nil && b.Kind == KindRollback:
+		fmt.Fprintf(log, "\n==> Rolled %s back to %s\n", b.App, b.Commit)
+		p.finish(b, Succeeded, "")
 	case err == nil:
 		fmt.Fprintf(log, "\n==> Deployed %s from %s\n", b.App, b.Commit)
 		p.finish(b, Succeeded, "")
@@ -244,6 +253,18 @@ func (p *Pipeline) run(parent context.Context, id string) {
 
 // steps runs the build and reports what it learned along the way.
 func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (app, image string, err error) {
+	if b.Kind == KindRollback {
+		m, err := manifest.Load(p.store.manifestPath(b.RollbackOf))
+		if err != nil {
+			return b.App, b.Image, fmt.Errorf("piway.yaml of %s: %w", b.RollbackOf, err)
+		}
+		fmt.Fprintf(out, "==> Rolling %s back to %s (build %s, commit %s)\n", m.Name, b.Image, b.RollbackOf, b.Commit)
+		if err := p.opts.Steps.Release(ctx, m, b, out); err != nil {
+			return b.App, b.Image, fmt.Errorf("release: %w", err)
+		}
+		return b.App, b.Image, nil
+	}
+
 	dir := filepath.Join(p.opts.Dir, "work", b.ID)
 	defer os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -264,6 +285,9 @@ func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (app, imag
 	p.mu.Lock()
 	p.builds[b.ID].App = app
 	p.mu.Unlock()
+	if raw, err := os.ReadFile(filepath.Join(dir, "piway.yaml")); err == nil {
+		os.WriteFile(p.store.manifestPath(b.ID), raw, 0o644)
+	}
 	if m.Static != nil {
 		return app, "", errors.New("static sites need the Caddy integration (#24), which is not there yet")
 	}
@@ -306,6 +330,64 @@ func (p *Pipeline) finish(b *Build, s State, msg string) {
 		delete(p.builds, id)
 		p.order = slices.DeleteFunc(p.order, func(x string) bool { return x == id })
 	}
+}
+
+// ErrNoRollback is returned when an app has no earlier successful build
+// to roll back to.
+var ErrNoRollback = errors.New("deploy: nothing to roll back to")
+
+// Live returns the id of the build an app is running: its latest
+// successful build or rollback, or "" if none.
+func (p *Pipeline) Live(app string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if b := p.liveLocked(app); b != nil {
+		return b.ID
+	}
+	return ""
+}
+
+func (p *Pipeline) liveLocked(app string) *Build {
+	for i := len(p.order) - 1; i >= 0; i-- {
+		if b := p.builds[p.order[i]]; b.App == app && b.State == Succeeded {
+			return b
+		}
+	}
+	return nil
+}
+
+// Rollback queues a release of the image the app ran before its current
+// one, without rebuilding. It goes through the same health check as a
+// deploy, so a broken old version never replaces a working one.
+func (p *Pipeline) Rollback(app string) (Build, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cur := p.liveLocked(app)
+	if cur == nil {
+		return Build{}, ErrNotFound
+	}
+	var target *Build
+	for i := len(p.order) - 1; i >= 0; i-- {
+		b := p.builds[p.order[i]]
+		if b.App == app && b.State == Succeeded && b.Image != cur.Image && b.Image != "" {
+			if _, err := os.Stat(p.store.manifestPath(b.ID)); err == nil {
+				target = b
+				break
+			}
+		}
+	}
+	if target == nil {
+		return Build{}, ErrNoRollback
+	}
+	rb := &Build{
+		ID: p.newID(target.Commit), App: app, Repo: target.Repo, Branch: target.Branch,
+		Commit: target.Commit, CloneURL: target.CloneURL, Image: target.Image,
+		Kind: KindRollback, RollbackOf: target.ID, State: Queued, Queued: p.opts.now(),
+	}
+	if err := p.enqueueLocked(rb); err != nil {
+		return Build{}, err
+	}
+	return *rb, nil
 }
 
 // Cancel stops a queued or running build.

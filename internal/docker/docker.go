@@ -13,6 +13,7 @@ package docker
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -116,8 +118,8 @@ type Spec struct {
 	Env    []string          // KEY=value
 	Labels map[string]string // LabelApp is added by Create
 	// Port is the container port to publish on 127.0.0.1:HostPort (only
-	// Caddy on the same host should reach apps directly). Zero publishes
-	// nothing.
+	// piway's proxy on the same host should reach apps directly). Zero
+	// publishes nothing; HostPort zero lets Docker choose a free port.
 	Port, HostPort int
 	// Limits become cgroup v2 settings of the container's cgroup:
 	// MemoryBytes is memory.max (the kernel reclaims, then OOM-kills
@@ -175,8 +177,12 @@ func (c *Client) Create(ctx context.Context, name, app string, spec Spec) (id st
 	if spec.Port > 0 {
 		p := strconv.Itoa(spec.Port) + "/tcp"
 		body.ExposedPorts = map[string]struct{}{p: {}}
+		host := "" // Docker picks a free port; see Details.Ports
+		if spec.HostPort > 0 {
+			host = strconv.Itoa(spec.HostPort)
+		}
 		body.HostConfig.PortBindings = map[string][]portBinding{
-			p: {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(spec.HostPort)}},
+			p: {{HostIP: "127.0.0.1", HostPort: host}},
 		}
 	}
 	var out struct {
@@ -243,11 +249,82 @@ type State struct {
 
 // Inspect returns a container's state.
 func (c *Client) Inspect(ctx context.Context, id string) (State, error) {
+	d, err := c.Details(ctx, id)
+	return d.State, err
+}
+
+// Details is what piway needs to know about one container.
+type Details struct {
+	ID     string
+	Name   string // without the leading "/"
+	Image  string // as created, e.g. piway/guestbook:0123456789ab
+	Labels map[string]string
+	State  State
+	// Ports maps "3000/tcp" to the host port Docker published it on.
+	Ports map[string]int
+}
+
+// Details inspects a container.
+func (c *Client) Details(ctx context.Context, id string) (Details, error) {
 	var out struct {
-		State State `json:"State"`
+		ID     string `json:"Id"`
+		Name   string `json:"Name"`
+		State  State  `json:"State"`
+		Config struct {
+			Image  string            `json:"Image"`
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+		NetworkSettings struct {
+			Ports map[string][]portBinding `json:"Ports"`
+		} `json:"NetworkSettings"`
 	}
-	err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, nil, &out)
-	return out.State, err
+	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, nil, &out); err != nil {
+		return Details{}, err
+	}
+	d := Details{ID: out.ID, Name: strings.TrimPrefix(out.Name, "/"), Image: out.Config.Image,
+		Labels: out.Config.Labels, State: out.State, Ports: map[string]int{}}
+	for port, bindings := range out.NetworkSettings.Ports {
+		for _, b := range bindings {
+			if n, err := strconv.Atoi(b.HostPort); err == nil && n > 0 {
+				d.Ports[port] = n
+				break
+			}
+		}
+	}
+	return d, nil
+}
+
+// Image is a summary of one local image.
+type Image struct {
+	ID       string            `json:"Id"`
+	RepoTags []string          `json:"RepoTags"`
+	Created  int64             `json:"Created"`
+	Labels   map[string]string `json:"Labels"`
+}
+
+// Images lists the images built for app (labelled piway.app=app), newest
+// first.
+func (c *Client) Images(ctx context.Context, app string) ([]Image, error) {
+	filters, _ := json.Marshal(map[string][]string{"label": {LabelApp + "=" + app}})
+	var out []Image
+	err := c.do(ctx, http.MethodGet, "/images/json", url.Values{"filters": {string(filters)}}, nil, &out)
+	slices.SortFunc(out, func(a, b Image) int { return cmp.Compare(b.Created, a.Created) })
+	return out, err
+}
+
+// ImageExists reports whether ref (name:tag) is present locally.
+func (c *Client) ImageExists(ctx context.Context, ref string) (bool, error) {
+	err := c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(ref)+"/json", nil, nil, nil)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// RemoveImage deletes an image by id or reference. Images still used by a
+// container are refused with ErrConflict.
+func (c *Client) RemoveImage(ctx context.Context, ref string) error {
+	return c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(ref), nil, nil, nil)
 }
 
 // Pull downloads image (name:tag). The daemon streams progress as JSON

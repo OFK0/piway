@@ -346,3 +346,55 @@ func TestIDsAreUniqueAndOrdered(t *testing.T) {
 		t.Errorf("ids %q, %q", a, b)
 	}
 }
+
+func TestRollback(t *testing.T) {
+	dir := t.TempDir()
+	h := start(t, dir, Options{})
+	if _, err := h.p.Rollback("guestbook"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("before any deploy: %v, want ErrNotFound", err)
+	}
+
+	first := push(t, h.p, "aaaaaaaaaaaa1")
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, first, Succeeded)
+	if _, err := h.p.Rollback("guestbook"); !errors.Is(err, ErrNoRollback) {
+		t.Errorf("with one deploy: %v, want ErrNoRollback", err)
+	}
+
+	second := push(t, h.p, "bbbbbbbbbbbb2")
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, second, Succeeded)
+	if h.p.Live("guestbook") != second {
+		t.Errorf("live = %q, want %q", h.p.Live("guestbook"), second)
+	}
+
+	// A restart in between: the saved piway.yaml must be enough.
+	h.stop()
+	h = start(t, dir, Options{})
+
+	rb, err := h.p.Rollback("guestbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb.Kind != KindRollback || rb.RollbackOf != first || rb.Image != "piway/guestbook:aaaaaaaaaaaa" {
+		t.Errorf("rollback build = %+v", rb)
+	}
+	b := waitState(t, h.p, rb.ID, Succeeded)
+	select {
+	case img := <-h.steps.started:
+		t.Errorf("a rollback rebuilt the image %s", img)
+	default:
+	}
+	if r := h.steps.releasedImages(); len(r) != 1 || r[0] != "piway/guestbook:aaaaaaaaaaaa" {
+		t.Errorf("released %v, want the first image", r)
+	}
+	log, _, _, _ := h.p.Follow(b.ID)
+	if !strings.Contains(string(log), "==> Rolling guestbook back") || !strings.Contains(string(log), "==> Rolled guestbook back") {
+		t.Errorf("log:\n%s", log)
+	}
+	if h.p.Live("guestbook") != rb.ID {
+		t.Errorf("live after rollback = %q", h.p.Live("guestbook"))
+	}
+}

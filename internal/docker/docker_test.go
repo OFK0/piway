@@ -55,6 +55,26 @@ func (f *fakeDaemon) routes() http.Handler {
 	mux.HandleFunc("GET "+v+"/version", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Version{Version: "26.1.5", APIVersion: "1.45", Arch: "arm64", OS: "linux"})
 	})
+	mux.HandleFunc("GET "+v+"/images/json", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]Image{
+			{ID: "sha256:old", RepoTags: []string{"piway/web:aaa"}, Created: 100},
+			{ID: "sha256:new", RepoTags: []string{"piway/web:bbb"}, Created: 200},
+		})
+	})
+	mux.HandleFunc("GET "+v+"/images/{ref}/json", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("ref") != "piway/web:bbb" {
+			writeMsg(w, 404, "No such image")
+			return
+		}
+		w.Write([]byte(`{"Id":"sha256:new"}`))
+	})
+	mux.HandleFunc("DELETE "+v+"/images/{ref}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("ref") == "in-use" {
+			writeMsg(w, 409, "image is being used by running container")
+			return
+		}
+		w.Write([]byte(`[{"Deleted":"sha256:x"}]`))
+	})
 	mux.HandleFunc("GET "+v+"/info", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"MemoryLimit": false, "CpuCfsQuota": true, "Driver": "overlay2"})
 	})
@@ -124,7 +144,22 @@ func (f *fakeDaemon) routes() http.Handler {
 			writeMsg(w, 404, "No such container")
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"State": map[string]any{"Status": c.state, "Running": c.state == "running"}})
+		ports := map[string]any{}
+		if b := f.lastCreate.HostConfig.PortBindings; len(b) > 0 {
+			for p, bs := range b {
+				hp := bs[0].HostPort
+				if hp == "" {
+					hp = "32768" // what the daemon picks for an empty HostPort
+				}
+				ports[p] = []map[string]string{{"HostIp": "127.0.0.1", "HostPort": hp}}
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"Id": c.id, "Name": "/" + c.name,
+			"State":           map[string]any{"Status": c.state, "Running": c.state == "running"},
+			"Config":          map[string]any{"Image": c.image, "Labels": c.labels},
+			"NetworkSettings": map[string]any{"Ports": ports},
+		})
 	})
 	mux.HandleFunc("POST "+v+"/images/create", func(w http.ResponseWriter, r *http.Request) {
 		// Like the daemon: 200 first, progress lines, errors inside the stream.
@@ -311,5 +346,46 @@ func TestInfo(t *testing.T) {
 	}
 	if i.MemoryLimit || !i.CPUCfsQuota {
 		t.Errorf("info = %+v", i)
+	}
+}
+
+func TestDetailsAndEphemeralPort(t *testing.T) {
+	c, f := startFake(t)
+	id, err := c.Create(ctx, "web-1", "web", Spec{Image: "piway/web:bbb", Port: 3000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hp := f.lastCreate.HostConfig.PortBindings["3000/tcp"][0].HostPort; hp != "" {
+		t.Errorf("HostPort %q, want empty so the daemon picks one", hp)
+	}
+	d, err := c.Details(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "web-1" || d.Image != "piway/web:bbb" || d.Labels[LabelApp] != "web" || d.Ports["3000/tcp"] != 32768 {
+		t.Errorf("details = %+v", d)
+	}
+}
+
+func TestImages(t *testing.T) {
+	c, _ := startFake(t)
+	imgs, err := c.Images(ctx, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imgs) != 2 || imgs[0].ID != "sha256:new" {
+		t.Errorf("images = %+v, want newest first", imgs)
+	}
+	if ok, err := c.ImageExists(ctx, "piway/web:bbb"); !ok || err != nil {
+		t.Errorf("existing image: %v %v", ok, err)
+	}
+	if ok, err := c.ImageExists(ctx, "piway/web:gone"); ok || err != nil {
+		t.Errorf("missing image: %v %v", ok, err)
+	}
+	if err := c.RemoveImage(ctx, "piway/web:aaa"); err != nil {
+		t.Error(err)
+	}
+	if err := c.RemoveImage(ctx, "in-use"); !errors.Is(err, ErrConflict) {
+		t.Errorf("image in use: %v, want ErrConflict", err)
 	}
 }
