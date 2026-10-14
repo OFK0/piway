@@ -201,6 +201,23 @@ Charts use Recharts through shadcn's `Chart`, with colors from `--chart-*`.
 - Hover shows a crosshair and a tooltip with the exact value and time.
 - Values in text use text tokens, never the series color.
 
+## Logo
+
+The mark is a gauge: a stem and a ring in ink, with a raspberry needle and
+hub. The wordmark sits to its right. The masters are
+`docs/brand/piway-logo-black.svg` and `docs/brand/piway-logo-white.svg`.
+
+| Where | Version |
+| ----- | ------- |
+| Light backgrounds (light theme, printed docs) | Black |
+| Dark backgrounds (dark theme) | White |
+| Dashboard header (`components/logo.tsx`) | Inline. Ink is `foreground` and the needle is `brand`, so it follows the theme. |
+| Favicon (`public/favicon.svg`) | The mark only, black or white by `prefers-color-scheme` |
+| README | Picks the black or white file with `<picture>` |
+
+The needle stays raspberry in both versions. Never recolor the ink, never
+put the logo on raspberry, and never stretch it.
+
 ## Iconography
 
 Phosphor icons (`@phosphor-icons/react`), regular weight. Icons in buttons

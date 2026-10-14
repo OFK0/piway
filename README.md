@@ -1,4 +1,9 @@
-# piway
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/piway-logo-white.svg">
+    <img src="docs/brand/piway-logo-black.svg" alt="piway" width="240">
+  </picture>
+</h1>
 
 Self-hosted metrics agent and mini PaaS for Raspberry Pi, written in Go.
 
