@@ -283,9 +283,9 @@ func loadSegment(path string, log *slog.Logger) (seg segmentInfo, ok bool, err e
 	return segmentInfo{path: path, dataEnd: int64(end), minT: minT, maxT: maxT}, true, nil
 }
 
-// readSegment calls fn for every sample of series in seg, whose bytes are
-// the file's first dataEnd bytes followed by tail (records not yet written).
-func readSegment(seg segmentInfo, tail []byte, series string, fn func(t int64, v float64)) error {
+// scanSegment calls fn for every sample in seg, whose bytes are the file's
+// first dataEnd bytes followed by tail (records not yet written).
+func scanSegment(seg segmentInfo, tail []byte, fn func(series string, t int64, v float64)) error {
 	f, err := os.Open(seg.path)
 	if err != nil {
 		return err
@@ -303,9 +303,7 @@ func readSegment(seg segmentInfo, tail []byte, series string, fn func(t int64, v
 	var d decoder
 	end := headerSize + walkFrames(data[headerSize:], func(p []byte) error {
 		return d.record(p, func(t int64, id uint64, v float64) {
-			if d.names[id] == series {
-				fn(t, v)
-			}
+			fn(d.names[id], t, v)
 		})
 	})
 	if end != len(data) {

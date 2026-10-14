@@ -32,6 +32,8 @@ type Config struct {
 	// DataDir holds the metrics history; empty disables recording.
 	DataDir       string
 	FlushInterval time.Duration
+	// How long each history tier is kept (docs/STORAGE.md).
+	RetentionRaw, Retention1m, Retention1h time.Duration
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -47,7 +49,42 @@ func Default() Config {
 		LogLevel:      slog.LevelInfo,
 		DataDir:       DefaultDataDir(),
 		FlushInterval: time.Minute,
+		RetentionRaw:  24 * time.Hour,
+		Retention1m:   7 * day,
+		Retention1h:   365 * day,
 	}
+}
+
+const day = 24 * time.Hour
+
+// parseRetention is time.ParseDuration plus a "d" (day) unit, which
+// retention periods need: "7d" rather than "168h".
+func parseRetention(s string) (time.Duration, error) {
+	var d time.Duration
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration %q", s)
+		}
+		d = time.Duration(n) * day
+	} else {
+		var err error
+		if d, err = time.ParseDuration(s); err != nil {
+			return 0, err
+		}
+	}
+	if d < time.Hour {
+		return 0, fmt.Errorf("must be at least 1h, got %v", d)
+	}
+	return d, nil
+}
+
+// formatRetention prints whole days as "7d" so -print-config reads back.
+func formatRetention(d time.Duration) string {
+	if d%day == 0 {
+		return strconv.Itoa(int(d/day)) + "d"
+	}
+	return d.String()
 }
 
 // MaxFlushInterval bounds how much history a crash of the process can lose.
@@ -169,6 +206,25 @@ var fields = []field{
 		},
 		get: func(c *Config) string { return c.FlushInterval.String() },
 	},
+	retentionField("retention_raw", "every sample", func(c *Config) *time.Duration { return &c.RetentionRaw }),
+	retentionField("retention_1m", "per-minute rollups", func(c *Config) *time.Duration { return &c.Retention1m }),
+	retentionField("retention_1h", "per-hour rollups", func(c *Config) *time.Duration { return &c.Retention1h }),
+}
+
+func retentionField(key, what string, ptr func(*Config) *time.Duration) field {
+	return field{
+		key:   key,
+		usage: "how long to keep " + what + ", as a `duration` such as 24h or 7d",
+		set: func(c *Config, s string) error {
+			d, err := parseRetention(s)
+			if err != nil {
+				return err
+			}
+			*ptr(c) = d
+			return nil
+		},
+		get: func(c *Config) string { return formatRetention(*ptr(c)) },
+	}
 }
 
 func lookupField(key string) (field, bool) {

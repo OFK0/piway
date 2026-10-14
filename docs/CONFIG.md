@@ -32,6 +32,9 @@ The output is itself a valid config file.
 | `log_level` | `PIWAY_LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn` or `error`. |
 | `data_dir` | `PIWAY_DATA_DIR` | `-data-dir` | `~/.local/state/piway` | Where the metrics history is stored (`$XDG_STATE_HOME/piway` if that is set). An empty value disables recording; set it in the file or with `-data-dir ""`, since an empty environment variable counts as unset. |
 | `flush_interval` | `PIWAY_FLUSH_INTERVAL` | `-flush-interval` | `1m` | How long recorded samples may wait in memory before they are written. Longer means fewer SD card writes; a crash of piway loses up to this much history. `0` writes every sample. At most `10m`. See [STORAGE.md](STORAGE.md). |
+| `retention_raw` | `PIWAY_RETENTION_RAW` | `-retention-raw` | `24h` | How long every sample is kept. Durations also accept days (`7d`); at least `1h`. |
+| `retention_1m` | `PIWAY_RETENTION_1M` | `-retention-1m` | `7d` | How long per-minute rollups are kept. |
+| `retention_1h` | `PIWAY_RETENTION_1H` | `-retention-1h` | `365d` | How long per-hour rollups are kept. |
 
 The pattern is the same for every setting: the env var is `PIWAY_` plus the
 key in upper case, and the flag is the key with `_` replaced by `-`.

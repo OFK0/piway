@@ -536,3 +536,76 @@ func TestCrashLosesAtMostTheInterval(t *testing.T) {
 		t.Fatalf("recovered %d samples, want 21 (lost at most one interval)", len(got))
 	}
 }
+
+func TestScanReadsEverySeriesOnce(t *testing.T) {
+	s := openStore(t, t.TempDir(), Options{SegmentSpan: 10 * time.Second})
+	for i := int64(0); i < 30; i++ {
+		mustAppend(t, s, i*1000, Point{"a", float64(i)}, Point{"b", float64(-i)})
+	}
+	got := map[string]int{}
+	var sumA float64
+	err := s.Scan(5000, 14_000, func(series string, ts int64, v float64) {
+		if ts < 5000 || ts > 14_000 {
+			t.Errorf("sample at %d outside the range", ts)
+		}
+		got[series]++
+		if series == "a" {
+			sumA += v
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["a"] != 10 || got["b"] != 10 {
+		t.Errorf("counts = %v, want 10 each", got)
+	}
+	if sumA != 5+6+7+8+9+10+11+12+13+14 {
+		t.Errorf("sum of a = %v", sumA)
+	}
+}
+
+func TestBounds(t *testing.T) {
+	s := openStore(t, t.TempDir(), Options{SegmentSpan: 10 * time.Second})
+	if _, _, ok := s.Bounds(); ok {
+		t.Fatal("empty store reports bounds")
+	}
+	for _, ts := range []int64{5000, 1000, 25_000} {
+		mustAppend(t, s, ts, Point{"a", 1})
+	}
+	minT, maxT, ok := s.Bounds()
+	if !ok || minT != 1000 || maxT != 25_000 {
+		t.Errorf("bounds = %d, %d, %v", minT, maxT, ok)
+	}
+}
+
+func TestDeleteBefore(t *testing.T) {
+	dir := t.TempDir()
+	s := openStore(t, dir, Options{SegmentSpan: 10 * time.Second})
+	for i := int64(0); i < 35; i++ {
+		mustAppend(t, s, i*1000, Point{"a", float64(i)})
+	}
+	// Segments: [0,9], [10,19], [20,29] sealed; [30,34] active.
+	if n := len(segFiles(t, dir)); n != 4 {
+		t.Fatalf("%d segments, want 4", n)
+	}
+
+	removed, err := s.DeleteBefore(20_000)
+	if err != nil || removed != 2 {
+		t.Fatalf("removed %d (%v), want 2", removed, err)
+	}
+	if n := len(segFiles(t, dir)); n != 2 {
+		t.Errorf("%d segment files left, want 2", n)
+	}
+	got := mustSelect(t, s, "a", 0, math.MaxInt64)
+	if len(got) != 15 || got[0].T != 20_000 {
+		t.Errorf("after retention: %d samples from %d, want 15 from 20000", len(got), got[0].T)
+	}
+
+	// The active segment survives even when it is entirely too old.
+	if _, err := s.DeleteBefore(math.MaxInt64); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustSelect(t, s, "a", 0, math.MaxInt64); len(got) != 5 {
+		t.Errorf("active segment lost: %d samples left, want 5", len(got))
+	}
+}

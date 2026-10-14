@@ -20,3 +20,8 @@
 # How long samples may wait in memory before they are written to the SD
 # card. Longer = fewer writes; a crash loses up to this much history.
 # flush_interval: 1m
+
+# How long the history is kept at each resolution (docs/STORAGE.md).
+# retention_raw: 24h
+# retention_1m: 7d
+# retention_1h: 365d

@@ -382,39 +382,113 @@ func (s *Store) abandon() {
 // Select returns the samples of series with mint <= T <= maxt, sorted by
 // time. Samples with equal T keep their append order.
 func (s *Store) Select(series string, mint, maxt int64) ([]Sample, error) {
+	var out []Sample
+	err := s.Scan(mint, maxt, func(name string, t int64, v float64) {
+		if name == series {
+			out = append(out, Sample{T: t, V: v})
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortStableFunc(out, func(a, b Sample) int { return cmp.Compare(a.T, b.T) })
+	return out, nil
+}
+
+// Scan calls fn for every sample of every series with mint <= T <= maxt,
+// segment by segment in append order. Reading all series in one pass is
+// what downsampling needs; Select would read each segment once per series.
+// fn must not call back into the Store.
+func (s *Store) Scan(mint, maxt int64, fn func(series string, t int64, v float64)) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return nil, ErrClosed
+		return ErrClosed
 	}
 	segs := slices.Clone(s.segments)
 	var tail []byte // the active segment's records not yet in its file
-	if s.active != nil {
+	hasActive := s.active != nil
+	if hasActive {
 		segs = append(segs, s.active.segmentInfo)
 		tail = slices.Clone(s.active.pending)
 	}
 	s.mu.Unlock()
 
-	var out []Sample
 	for i, seg := range segs {
 		if seg.maxT < mint || seg.minT > maxt {
 			continue
 		}
 		var extra []byte
-		if i == len(segs)-1 {
+		if hasActive && i == len(segs)-1 {
 			extra = tail
 		}
-		err := readSegment(seg, extra, series, func(t int64, v float64) {
+		err := scanSegment(seg, extra, func(series string, t int64, v float64) {
 			if t >= mint && t <= maxt {
-				out = append(out, Sample{T: t, V: v})
+				fn(series, t, v)
 			}
 		})
+		if errors.Is(err, os.ErrNotExist) {
+			continue // deleted by retention after the snapshot above
+		}
 		if err != nil {
-			return nil, fmt.Errorf("tsdb: %w", err)
+			return fmt.Errorf("tsdb: %w", err)
 		}
 	}
-	slices.SortStableFunc(out, func(a, b Sample) int { return cmp.Compare(a.T, b.T) })
-	return out, nil
+	return nil
+}
+
+// Bounds returns the smallest and largest sample time in the store. ok is
+// false when it holds no samples.
+func (s *Store) Bounds() (minT, maxT int64, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	segs := s.segments
+	if s.active != nil {
+		segs = append(slices.Clone(segs), s.active.segmentInfo)
+	}
+	for i, seg := range segs {
+		if i == 0 {
+			minT, maxT = seg.minT, seg.maxT
+			continue
+		}
+		minT, maxT = min(minT, seg.minT), max(maxT, seg.maxT)
+	}
+	return minT, maxT, len(segs) > 0
+}
+
+// DeleteBefore removes sealed segments whose samples are all older than t
+// and returns how many it removed. Retention is per segment, so samples up
+// to one SegmentSpan older than t may remain; the active segment is never
+// removed.
+func (s *Store) DeleteBefore(t int64) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, ErrClosed
+	}
+	var keep []segmentInfo
+	removed := 0
+	var errs []error
+	for _, seg := range s.segments {
+		if seg.maxT >= t {
+			keep = append(keep, seg)
+			continue
+		}
+		if err := os.Remove(seg.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+			keep = append(keep, seg)
+			continue
+		}
+		removed++
+	}
+	s.segments = keep
+	if removed > 0 {
+		errs = append(errs, syncDir(s.dir))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return removed, fmt.Errorf("tsdb: %w", err)
+	}
+	return removed, nil
 }
 
 // Close seals the active segment and releases the directory.
