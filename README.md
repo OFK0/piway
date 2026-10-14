@@ -39,6 +39,11 @@ To change settings, copy `deploy/config.example.yaml` to
 [docs/CONFIG.md](docs/CONFIG.md) for the full list, the `PIWAY_*` environment
 variables, and the precedence rules.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the issue, branch, commit
+(Conventional Commits) and pull request conventions.
+
 ## Roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the GitHub milestones.
