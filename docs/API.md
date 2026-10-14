@@ -182,6 +182,39 @@ the checks applied. Responses are JSON `{"status": …, "reason": …}`:
 | `413` | `rejected` | Body over 5 MiB. |
 | `503` | `disabled`, `error` | No `webhook_secret` set, or the deploy could not be queued. |
 
+## Builds
+
+Deploys started by webhooks ([DEPLOY.md](DEPLOY.md)). All answer `503` when
+deploys are off (no Docker daemon).
+
+| Method and path | Response |
+| --------------- | -------- |
+| `GET /api/v1/builds` | `{"builds": [Build…]}`, newest first, at most 50. |
+| `GET /api/v1/builds/{id}` | One `Build`, or `404`. |
+| `GET /api/v1/builds/{id}/log` | The log so far, `text/plain`. |
+| `GET /api/v1/builds/{id}/log/stream` | WebSocket: the log so far, then new output as it is written, as text messages (not aligned to lines). Closes with `1000` when the build ends; at once for a finished or still-queued build. |
+| `POST /api/v1/builds/{id}/cancel` | `202 {"status":"cancelling"}`; `409` if it already finished; `404`. |
+
+```json
+{
+  "id": "20261014T185759Z-b691d31",
+  "app": "guestbook",
+  "repo": "OFK0/guestbook",
+  "branch": "main",
+  "commit": "b691d31695bad228fc1ac6499c47624d8b786337",
+  "pusher": "ofk0",
+  "clone_url": "https://github.com/OFK0/guestbook.git",
+  "state": "succeeded",
+  "image": "piway/guestbook:b691d31695ba",
+  "queued_at": "2026-10-14T18:57:59Z",
+  "started_at": "2026-10-14T18:57:59Z",
+  "finished_at": "2026-10-14T18:58:11Z"
+}
+```
+
+`state` is `queued`, `running`, `succeeded`, `failed` or `cancelled`;
+`error` explains the last two. `app` and `image` appear once known.
+
 ## `GET /api/v1/stream` (WebSocket)
 
 A one-way live stream of snapshots. Each text message is exactly the body of

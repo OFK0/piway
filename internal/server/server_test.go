@@ -22,7 +22,7 @@ func (f stubSource) Latest() *agent.Snapshot { return f.s }
 // newServer builds the handler without a dashboard.
 func newServer(t *testing.T, src SnapshotSource) http.Handler {
 	t.Helper()
-	h, err := New(src, http.NotFoundHandler(), nil, http.NotFoundHandler(), nil)
+	h, err := New(Deps{Snapshots: src})
 	if err != nil {
 		t.Fatal(err)
 	}

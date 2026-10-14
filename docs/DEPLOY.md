@@ -1,8 +1,9 @@
 # Deploying with git push
 
-A push to a configured branch on GitHub tells piway to deploy that commit.
-The build pipeline that turns the commit into a running app is #23; until
-it lands, piway logs each deploy request.
+A push to a configured branch on GitHub tells piway to deploy that commit:
+piway fetches it, builds its image on the Pi and replaces the app's
+container. Deploys need rootless Docker ([DOCKER.md](DOCKER.md)); without a
+Docker daemon piway logs the requests and the build API answers `503`.
 
 ## 1. Choose what deploys
 
@@ -63,3 +64,64 @@ or a Cloudflare Tunnel).
 | The body is at most 5 MiB | Otherwise `413`. |
 
 A queued deploy answers `202 {"status":"queued"}`.
+
+## What a deploy does
+
+1. **Fetch** exactly the pushed commit, shallowly (`git fetch --depth 1`).
+   Git never prompts: a private repository fails instead of hanging.
+2. **Read `piway.yaml`** ([MANIFEST.md](MANIFEST.md)). An invalid manifest
+   fails the build with its problems in the log. Static sites wait for the
+   Caddy integration (#24).
+3. **Build** the image `piway/<name>:<commit>` with BuildKit for
+   `linux/arm64`, natively on the Pi.
+4. **Release**: remove the app's previous container, start
+   `piway-<name>` from the new image with `run.env`, the secrets,
+   `run.command` and the limits, published on `127.0.0.1:<port>`, and
+   check it is still running after 5 seconds. Until #25 there is a short
+   gap between the old container stopping and the new one starting, and no
+   automatic rollback.
+
+The port is derived from the app name (20000–29999), so it stays the same
+across deploys; Caddy (#24) will proxy `<name>.<domain>` to it.
+
+### Queue
+
+One build runs at a time on the whole Pi. While it runs, new pushes queue;
+for each repository branch only the newest push is kept, and the one it
+replaces is marked `cancelled` ("superseded by …"). A build that takes more
+than 30 minutes fails. Builds interrupted by a piway restart are marked
+`failed`.
+
+### Secrets
+
+Values for `run.secrets` live on the Pi, in
+`~/.config/piway/secrets/<name>.env` (next to `apps.yaml`):
+
+```sh
+mkdir -p ~/.config/piway/secrets && chmod 700 ~/.config/piway/secrets
+echo 'DATABASE_URL=postgres://…' >> ~/.config/piway/secrets/guestbook.env
+chmod 600 ~/.config/piway/secrets/guestbook.env
+```
+
+One `NAME=value` per line; `#` starts a comment. A build fails if a
+declared secret has no value, and names which ones are missing.
+
+### Limits
+
+`run.memory` and `run.cpus` become cgroup limits. Raspberry Pi OS boots with
+the memory controller off, and Docker then accepts a memory limit without
+applying it; the build log says so with a `WARNING` line. See
+[DOCKER.md](DOCKER.md#memory-limits-optional-needs-a-reboot).
+
+## Following a build
+
+Builds and their logs are kept under `data_dir/deploys` (the last 100):
+
+```sh
+curl -s localhost:8080/api/v1/builds                 # newest first
+curl -s localhost:8080/api/v1/builds/<id>/log         # output so far
+curl -s -X POST localhost:8080/api/v1/builds/<id>/cancel
+```
+
+`/api/v1/builds/<id>/log/stream` streams the log over a WebSocket while the
+build runs. The dashboard's apps page (#26) builds on these.

@@ -20,12 +20,26 @@ type SnapshotSource interface {
 	Latest() *agent.Snapshot
 }
 
-// New returns the root HTTP handler. live serves the WebSocket stream, hist
-// answers range queries (nil when recording is disabled) and ui holds the
-// built dashboard (nil if this binary has none).
-//
-// hooks receives GitHub webhooks (internal/webhook).
-func New(snapshots SnapshotSource, live http.Handler, hist SeriesQuerier, hooks http.Handler, ui fs.FS) (http.Handler, error) {
+// Deps are the parts of piway the HTTP API serves. Nil History, Webhooks
+// handler and Builds mean the feature is off; UI nil means no dashboard.
+type Deps struct {
+	Snapshots SnapshotSource
+	Live      http.Handler // WebSocket snapshot stream
+	History   SeriesQuerier
+	Webhooks  http.Handler // GitHub webhooks (internal/webhook)
+	Builds    Builds
+	UI        fs.FS
+}
+
+// New returns the root HTTP handler.
+func New(d Deps) (http.Handler, error) {
+	snapshots, live, hist, hooks, ui := d.Snapshots, d.Live, d.History, d.Webhooks, d.UI
+	if live == nil {
+		live = http.NotFoundHandler()
+	}
+	if hooks == nil {
+		hooks = http.NotFoundHandler()
+	}
 	dashboard, err := uiHandler(ui)
 	if err != nil {
 		return nil, err
@@ -37,6 +51,7 @@ func New(snapshots SnapshotSource, live http.Handler, hist SeriesQuerier, hooks 
 	mux.Handle("GET /api/v1/stream", live)
 	mux.HandleFunc("GET /api/v1/series", series(hist, time.Now))
 	mux.Handle("POST /api/v1/webhooks/github", hooks)
+	buildRoutes(mux, d.Builds)
 	mux.Handle("GET /metrics", prom.Handler(snapshots.Latest))
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,

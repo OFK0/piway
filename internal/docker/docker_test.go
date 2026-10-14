@@ -55,6 +55,9 @@ func (f *fakeDaemon) routes() http.Handler {
 	mux.HandleFunc("GET "+v+"/version", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Version{Version: "26.1.5", APIVersion: "1.45", Arch: "arm64", OS: "linux"})
 	})
+	mux.HandleFunc("GET "+v+"/info", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"MemoryLimit": false, "CpuCfsQuota": true, "Driver": "overlay2"})
+	})
 	mux.HandleFunc("POST "+v+"/containers/create", func(w http.ResponseWriter, r *http.Request) {
 		var body createBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -297,5 +300,16 @@ func TestSocketPath(t *testing.T) {
 		if got != tt.want || (err != nil) != tt.err {
 			t.Errorf("env %v: got %q, %v", tt.env, got, err)
 		}
+	}
+}
+
+func TestInfo(t *testing.T) {
+	c, _ := startFake(t)
+	i, err := c.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i.MemoryLimit || !i.CPUCfsQuota {
+		t.Errorf("info = %+v", i)
 	}
 }

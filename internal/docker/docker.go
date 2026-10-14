@@ -93,9 +93,26 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	return v, err
 }
 
+// Info is what the daemon supports. MemoryLimit is false when the memory
+// cgroup controller is off (Raspberry Pi OS default, docs/DOCKER.md): the
+// daemon then accepts a memory limit and silently does not apply it.
+type Info struct {
+	MemoryLimit bool   `json:"MemoryLimit"`
+	CPUCfsQuota bool   `json:"CpuCfsQuota"`
+	Driver      string `json:"Driver"`
+}
+
+// Info reports the daemon's capabilities.
+func (c *Client) Info(ctx context.Context) (Info, error) {
+	var i Info
+	err := c.do(ctx, http.MethodGet, "/info", nil, nil, &i)
+	return i, err
+}
+
 // Spec is what piway asks of a new container.
 type Spec struct {
 	Image  string
+	Cmd    []string          // nil keeps the image's CMD
 	Env    []string          // KEY=value
 	Labels map[string]string // LabelApp is added by Create
 	// Port is the container port to publish on 127.0.0.1:HostPort (only
@@ -113,6 +130,7 @@ type Spec struct {
 
 type createBody struct {
 	Image        string              `json:"Image"`
+	Cmd          []string            `json:"Cmd,omitempty"`
 	Env          []string            `json:"Env,omitempty"`
 	Labels       map[string]string   `json:"Labels"`
 	ExposedPorts map[string]struct{} `json:"ExposedPorts,omitempty"`
@@ -143,6 +161,7 @@ func (c *Client) Create(ctx context.Context, name, app string, spec Spec) (id st
 	}
 	body := createBody{
 		Image:  spec.Image,
+		Cmd:    spec.Cmd,
 		Env:    spec.Env,
 		Labels: labels,
 		HostConfig: createHostConfig{
