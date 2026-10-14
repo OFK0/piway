@@ -4,7 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/piway -addr :8080
+# Settings come from ~/.config/piway/config.yaml (see docs/CONFIG.md).
+# Avoid flags here: they override the file and environment.
+ExecStart=%h/.local/bin/piway
 Restart=on-failure
 RestartSec=3
 

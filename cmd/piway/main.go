@@ -15,44 +15,54 @@ import (
 	"time"
 
 	"github.com/ofk0/piway/internal/agent"
+	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
 	"github.com/ofk0/piway/internal/version"
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP listen address")
-	interval := flag.Duration("interval", time.Second, "metric collection interval")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	cfg, err := config.Load(os.Args[1:], os.LookupEnv, config.DefaultPath(), os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "piway:", err)
+		os.Exit(2)
+	}
 
-	if *showVersion {
+	switch {
+	case cfg.ShowVersion:
 		fmt.Printf("piway %s (%s)\n", version.Version, version.Commit)
+		return
+	case cfg.PrintConfig:
+		cfg.Print(os.Stdout)
 		return
 	}
 
-	if err := run(*addr, *interval); err != nil {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
+	if cfg.File != "" {
+		slog.Info("loaded config", "file", cfg.File)
+	}
+
+	if err := run(cfg.Config); err != nil {
 		slog.Error("piway exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-// streamQueueLen is how many snapshots a WebSocket client may fall behind
-// before it is disconnected: 8 rounds is 8 seconds at the default interval.
-const streamQueueLen = 8
-
-func run(addr string, interval time.Duration) error {
+func run(cfg config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	log := slog.Default()
-	ag, err := agent.New(interval, log, agent.OpenDefault(log)...)
+	ag, err := agent.New(cfg.Interval, log, agent.OpenDefault(log)...)
 	if err != nil {
 		return err
 	}
 	defer ag.Close()
 
-	hub := stream.NewHub(streamQueueLen)
+	hub := stream.NewHub(cfg.StreamQueue)
 	live := stream.NewServer(hub, log)
 	ag.OnPublish(func(s *agent.Snapshot) {
 		// Encode once per round; every client is sent the same bytes.
@@ -81,14 +91,14 @@ func run(addr string, interval time.Duration) error {
 	}()
 
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              cfg.Addr,
 		Handler:           server.New(ag, live),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("piway listening", "addr", addr, "version", version.Version)
+		slog.Info("piway listening", "addr", cfg.Addr, "version", version.Version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
