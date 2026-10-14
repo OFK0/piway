@@ -18,11 +18,17 @@ a user-space stack that is somewhat slower than the kernel bridge.
 
 ## Install (once, needs sudo)
 
-Tested on Raspberry Pi OS / Debian 13 (trixie), arm64.
+Tested on Raspberry Pi OS / Debian 13 (trixie), arm64. Either Debian's
+`docker.io` (Docker 26) or Docker CE from Docker's own repository (Docker
+29, `docker-ce` and `docker-ce-rootless-extras`) works; piway speaks API
+1.44, which both accept.
 
 ```sh
 # 1. Packages: Docker, the rootless helpers, and user-session D-Bus.
+#    Debian's packages:
 sudo apt install docker.io rootlesskit uidmap slirp4netns fuse-overlayfs dbus-user-session
+#    or, with Docker CE already installed from download.docker.com:
+sudo apt install uidmap slirp4netns dbus-user-session
 
 # 2. Turn off the root daemon that the package starts.
 sudo systemctl disable --now docker.service docker.socket
@@ -41,7 +47,9 @@ grep "^$USER:" /etc/subuid /etc/subgid   # e.g. ofk:100000:65536 in both
 ## Set up rootless Docker (as your user, no sudo)
 
 ```sh
-/usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install
+dockerd-rootless-setuptool.sh check     # lists anything still missing
+dockerd-rootless-setuptool.sh install   # Docker CE: on $PATH
+# Debian docker.io: /usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install
 systemctl --user enable --now docker
 ```
 
