@@ -14,12 +14,16 @@ Self-hosted metrics agent and mini PaaS for Raspberry Pi, written in Go.
 Requires Go (see `go.mod`) and Node.js 24 for the dashboard.
 
 ```sh
-make build                            # builds web/ (dashboard), then the Go binary
+make build                            # builds web/, then a binary that embeds it
 ./bin/piway -addr :8080
 curl localhost:8080/healthz
+# dashboard: open http://<pi-address>:8080/ in a browser
 curl localhost:8080/api/v1/snapshot   # see docs/API.md
 go run ./cmd/wsload -clients 100      # WebSocket load test
 ```
+
+`make build-go` builds the binary without the dashboard (API only, no Node
+needed).
 
 ### Dashboard development
 

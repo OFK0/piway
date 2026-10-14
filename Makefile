@@ -5,11 +5,15 @@ LDFLAGS := -s -w -X github.com/ofk0/piway/internal/version.Version=$(VERSION) \
 
 .PHONY: build build-go web web-lint run test test-race lint fmt clean
 
-# The dashboard is built first: #12 embeds web/dist into the binary.
-build: web build-go
+# build: the dashboard first, then a binary that embeds it (internal/webui).
+# build-go: the binary alone, serving the API only (no Node needed).
+GOTAGS ?=
+
+build: web
+	$(MAKE) build-go GOTAGS=embedui
 
 build-go:
-	go build -ldflags "$(LDFLAGS)" -o bin/piway ./cmd/piway
+	go build -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/piway ./cmd/piway
 
 # npm ci only reruns when the lockfile changes.
 web/node_modules/.package-lock.json: web/package-lock.json
@@ -39,4 +43,4 @@ fmt:
 	gofmt -w .
 
 clean:
-	rm -rf bin web/dist
+	rm -rf bin internal/webui/dist

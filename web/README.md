@@ -1,7 +1,8 @@
 # piway dashboard
 
 React + TypeScript + Vite, with shadcn/ui (Base UI) and Tailwind CSS v4.
-Built output goes to `dist/`.
+Built output goes to `../internal/webui/dist/`, which the Go binary embeds
+(`make build`, build tag `embedui`).
 
 ## Design system
 
@@ -16,7 +17,7 @@ spec and show it on the design system page.
 ```sh
 npm ci
 npm run dev     # http://localhost:5173, proxies /api and /healthz to piway
-npm run build   # type-check, then bundle into dist/
+npm run build   # type-check, then bundle into ../internal/webui/dist/
 npm run lint
 ```
 

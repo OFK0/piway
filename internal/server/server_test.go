@@ -18,6 +18,16 @@ type stubSource struct{ s *agent.Snapshot }
 
 func (f stubSource) Latest() *agent.Snapshot { return f.s }
 
+// newServer builds the handler without a dashboard.
+func newServer(t *testing.T, src SnapshotSource) http.Handler {
+	t.Helper()
+	h, err := New(src, http.NotFoundHandler(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
 func serve(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -26,7 +36,7 @@ func serve(t *testing.T, h http.Handler, method, path string) *httptest.Response
 }
 
 func TestHealthz(t *testing.T) {
-	rec := serve(t, New(stubSource{}, http.NotFoundHandler()), http.MethodGet, "/healthz")
+	rec := serve(t, newServer(t, stubSource{}), http.MethodGet, "/healthz")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -48,7 +58,7 @@ func TestSnapshot(t *testing.T) {
 		Memory: &mem.Info{Total: 4 << 30, Used: 1 << 30},
 		Errors: map[string]string{"thermal": "vcgencmd: not found"},
 	}
-	rec := serve(t, New(stubSource{want}, http.NotFoundHandler()), http.MethodGet, "/api/v1/snapshot")
+	rec := serve(t, newServer(t, stubSource{want}), http.MethodGet, "/api/v1/snapshot")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body)
@@ -92,7 +102,7 @@ func TestSnapshot(t *testing.T) {
 }
 
 func TestSnapshotOmitsEmptyErrors(t *testing.T) {
-	rec := serve(t, New(stubSource{&agent.Snapshot{Seq: 1}}, http.NotFoundHandler()), http.MethodGet, "/api/v1/snapshot")
+	rec := serve(t, newServer(t, stubSource{&agent.Snapshot{Seq: 1}}), http.MethodGet, "/api/v1/snapshot")
 
 	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -104,7 +114,7 @@ func TestSnapshotOmitsEmptyErrors(t *testing.T) {
 }
 
 func TestSnapshotBeforeFirstRound(t *testing.T) {
-	rec := serve(t, New(stubSource{}, http.NotFoundHandler()), http.MethodGet, "/api/v1/snapshot")
+	rec := serve(t, newServer(t, stubSource{}), http.MethodGet, "/api/v1/snapshot")
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
@@ -124,7 +134,7 @@ func TestSnapshotBeforeFirstRound(t *testing.T) {
 func TestSnapshotEncodeFailure(t *testing.T) {
 	// encoding/json rejects NaN, which a buggy collector could produce.
 	bad := &agent.Snapshot{CPU: &cpu.Usage{Total: math.NaN()}}
-	rec := serve(t, New(stubSource{bad}, http.NotFoundHandler()), http.MethodGet, "/api/v1/snapshot")
+	rec := serve(t, newServer(t, stubSource{bad}), http.MethodGet, "/api/v1/snapshot")
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
@@ -135,7 +145,7 @@ func TestSnapshotEncodeFailure(t *testing.T) {
 }
 
 func TestSnapshotMethodNotAllowed(t *testing.T) {
-	rec := serve(t, New(stubSource{}, http.NotFoundHandler()), http.MethodPost, "/api/v1/snapshot")
+	rec := serve(t, newServer(t, stubSource{}), http.MethodPost, "/api/v1/snapshot")
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
