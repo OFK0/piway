@@ -184,6 +184,31 @@
   ::selection {
     @apply bg-brand text-brand-foreground;
   }
+
+  /* Everything clickable shows a pointer, and a disabled control says so
+     (DESIGN.md › States). Tailwind's preflight resets buttons to the
+     default arrow. Base layer, so a component can still opt out. */
+  :is(
+      button,
+      a[href],
+      summary,
+      label[for],
+      select,
+      [role="button"],
+      [role="tab"],
+      [role="menuitem"],
+      [role="menuitemradio"],
+      [role="menuitemcheckbox"],
+      [role="option"],
+      [role="switch"],
+      [role="checkbox"],
+      [role="radio"]
+    ) {
+    cursor: pointer;
+  }
+  :is(button, select, [role]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
+    cursor: not-allowed;
+  }
 }
 
 /*
