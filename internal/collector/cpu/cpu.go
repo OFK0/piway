@@ -57,11 +57,7 @@ func Parse(data []byte, s *Stat) error {
 
 	for len(data) > 0 {
 		var line []byte
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			line, data = data[:i], data[i+1:]
-		} else {
-			line, data = data, nil
-		}
+		line, data = procfs.NextLine(data)
 
 		if !bytes.HasPrefix(line, cpuPrefix) {
 			// cpu lines are always first; once past them there is nothing left to read.
@@ -71,7 +67,7 @@ func Parse(data []byte, s *Stat) error {
 			continue
 		}
 
-		name, fields, _ := bytes.Cut(line, []byte{' '})
+		name, fields := procfs.NextField(line)
 		t, err := parseTimes(fields)
 		if err != nil {
 			return fmt.Errorf("cpu: line %q: %w", name, err)
@@ -98,38 +94,22 @@ func parseTimes(b []byte) (Times, error) {
 	var v [8]uint64
 	n := 0
 	for n < len(v) {
-		x, rest, ok, err := nextUint(b)
+		var field []byte
+		field, b = procfs.NextField(b)
+		if len(field) == 0 {
+			break
+		}
+		x, err := procfs.ParseUint(field)
 		if err != nil {
 			return Times{}, err
 		}
-		if !ok {
-			break
-		}
-		v[n], b = x, rest
+		v[n] = x
 		n++
 	}
 	if n < minFields {
 		return Times{}, fmt.Errorf("got %d fields, want at least %d", n, minFields)
 	}
 	return Times{v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]}, nil
-}
-
-// nextUint parses the next space-separated unsigned integer without allocating.
-// ok is false when b holds no further fields.
-func nextUint(b []byte) (v uint64, rest []byte, ok bool, err error) {
-	i := 0
-	for i < len(b) && b[i] == ' ' {
-		i++
-	}
-	start := i
-	for i < len(b) && b[i] >= '0' && b[i] <= '9' {
-		v = v*10 + uint64(b[i]-'0')
-		i++
-	}
-	if i < len(b) && b[i] != ' ' {
-		return 0, nil, false, fmt.Errorf("unexpected byte %q", b[i])
-	}
-	return v, b[i:], i > start, nil
 }
 
 // busyPercent returns the non-idle share of time elapsed between prev and cur.
