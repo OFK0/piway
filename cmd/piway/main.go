@@ -59,7 +59,7 @@ func run(addr string, interval time.Duration) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(),
+		Handler:           server.New(ag),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

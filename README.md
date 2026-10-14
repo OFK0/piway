@@ -10,6 +10,7 @@ Self-hosted metrics agent and mini PaaS for Raspberry Pi, written in Go.
 make build
 ./bin/piway -addr :8080
 curl localhost:8080/healthz
+curl localhost:8080/api/v1/snapshot   # see docs/API.md
 ```
 
 ## Run as a user service
