@@ -1,0 +1,80 @@
+# Docker on the Pi
+
+piway runs apps as Docker containers. It uses **rootless Docker**: the
+Docker daemon runs as your user, not as root.
+
+## Why rootless
+
+Whoever can talk to a Docker daemon can start a container that mounts `/`,
+so access to a root daemon's socket is root on the machine. piway needs that
+access, and from M5 on it is reachable from the internet. With rootless
+Docker, the daemon, its socket and every container run as your user:
+a compromised piway, or a container escape, gets your user's rights, not
+root's.
+
+The trade-offs are small for piway: containers cannot bind ports below
+1024 (Caddy, not the apps, serves 80 and 443), and networking goes through
+a user-space stack that is somewhat slower than the kernel bridge.
+
+## Install (once, needs sudo)
+
+Tested on Raspberry Pi OS / Debian 13 (trixie), arm64.
+
+```sh
+# 1. Packages: Docker, the rootless helpers, and user-session D-Bus.
+sudo apt install docker.io rootlesskit uidmap slirp4netns fuse-overlayfs dbus-user-session
+
+# 2. Turn off the root daemon that the package starts.
+sudo systemctl disable --now docker.service docker.socket
+
+# 3. Keep your user services (Docker, piway) running without a login
+#    session, and start them at boot.
+sudo loginctl enable-linger "$USER"
+```
+
+Your user needs subordinate id ranges; Raspberry Pi OS creates them:
+
+```sh
+grep "^$USER:" /etc/subuid /etc/subgid   # e.g. ofk:100000:65536 in both
+```
+
+## Set up rootless Docker (as your user, no sudo)
+
+```sh
+/usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install
+systemctl --user enable --now docker
+```
+
+The daemon's socket is `$XDG_RUNTIME_DIR/docker.sock`
+(`/run/user/1000/docker.sock`). Point the CLI at it:
+
+```sh
+echo 'export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock' >> ~/.bashrc
+export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
+docker run --rm hello-world
+```
+
+piway finds the socket the same way: `$DOCKER_HOST` if set, else
+`$XDG_RUNTIME_DIR/docker.sock`.
+
+## Memory limits (optional, needs a reboot)
+
+Raspberry Pi OS boots with `cgroup_disable=memory`, so the memory cgroup
+controller is off and containers cannot have memory limits. A runaway app
+could then use all 4 GB. To enable it, append `cgroup_enable=memory` to the
+single line in `/boot/firmware/cmdline.txt` and reboot:
+
+```sh
+sudo sed -i '1 s/$/ cgroup_enable=memory/' /boot/firmware/cmdline.txt
+sudo reboot
+```
+
+Afterwards `cat /sys/fs/cgroup/cgroup.controllers` lists `memory`, and
+`docker info` no longer warns about missing memory limit support.
+
+## Check
+
+```sh
+docker info --format '{{.SecurityOptions}}'   # includes name=rootless
+docker info --format '{{.CgroupVersion}} {{.CgroupDriver}}'   # 2 systemd
+```

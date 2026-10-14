@@ -67,6 +67,7 @@ changes that span the whole repository.
 | `server` | `internal/server` |
 | `stream` | `internal/stream` |
 | `config` | `internal/config` |
+| `docker` | `internal/docker` (Engine API client) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |
