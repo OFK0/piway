@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 
+import { AppShell } from '@/components/app-shell'
 import { OverviewPage } from '@/pages/overview'
 
 // The design system page is a reference for developers; keep it out of the
@@ -11,7 +12,8 @@ const DesignSystemPage = lazy(() => import('@/pages/design-system'))
 export default function App() {
   if (window.location.pathname.replace(/\/$/, '') === '/design-system') {
     return (
-      <Suspense fallback={null}>
+      // The empty shell keeps the header and footer in place while the chunk loads.
+      <Suspense fallback={<AppShell>{null}</AppShell>}>
         <DesignSystemPage />
       </Suspense>
     )

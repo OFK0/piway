@@ -217,6 +217,30 @@ Charts use Recharts through shadcn's `Chart`, with colors from `--chart-*`.
 - Hover shows a crosshair and a tooltip with the exact value and time.
 - Values in text use text tokens, never the series color.
 
+## Loading
+
+The page must not jump. When data arrives, values fill the places that were
+already drawn for them; nothing grows, moves or appears around them.
+
+- **Content waiting for the API shows a skeleton of its final layout.** Card
+  titles, icons, table headers and other static text are real; only the
+  values are placeholders. A generic gray block is not a skeleton.
+- **Placeholders keep the line height of their text.** Use `SkeletonText`
+  with a typical value as its invisible content (`00.0`, `0.0 KiB/s`) inside
+  the same type style, so the bar has the width and height of the real text.
+  Use `Skeleton` only for non-text shapes such as a meter.
+- **Repeated rows come back in the same number.** The overview remembers how
+  many cores, interfaces and disks the last load had (`lib/snapshot-shape.ts`)
+  and draws that many placeholder rows. The first visit assumes a Pi 4.
+- **Content fades in once** (`animate-in fade-in`, 300 ms; instant under
+  reduced motion). A refresh keeps the values on screen and only the button
+  shows a `Spinner`. Never go back to a skeleton after data has been shown.
+- **Slots of unknown size go last.** Text whose width is unknown until it
+  loads, such as the version in the footer, comes after fixed items so it
+  cannot push them.
+- **Spinners are for actions, skeletons are for content.** A page or card is
+  never replaced by a spinner.
+
 ## Logo
 
 The mark is a gauge: a stem and a ring in ink, with a raspberry needle and

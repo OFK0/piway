@@ -1,6 +1,7 @@
 import {
   ArrowClockwiseIcon,
   CpuIcon,
+  MemoryIcon,
   DotsThreeIcon,
   PauseIcon,
   RocketLaunchIcon,
@@ -257,7 +258,7 @@ function DataDisplay() {
             value={null}
             missingReason="Needs a second sample. Refresh in a moment."
           />
-          <MetricCardSkeleton />
+          <MetricCardSkeleton title="Memory" icon={MemoryIcon} meter />
         </div>
       </Block>
 
