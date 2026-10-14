@@ -131,7 +131,12 @@ Closes #10
 
 ### Web
 
-- `make web-lint` and `make web` must pass.
+- `make web-lint`, `make web-test` and `make web` must pass.
+- Logic that does not need a browser (buffers, backoff, stream state) lives
+  in plain modules under `web/src/lib` with `*.test.ts` next to them, run by
+  Node's built-in test runner. Keep them free of `@/` imports and
+  TypeScript-only syntax such as parameter properties, so Node can strip
+  the types and run them directly.
 - Follow [web/DESIGN.md](web/DESIGN.md) once it exists: semantic tokens only, no raw colors in components.
 
 ### Docs stay in sync
