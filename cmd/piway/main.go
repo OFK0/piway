@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/ofk0/piway/internal/agent"
 	"github.com/ofk0/piway/internal/config"
+	"github.com/ofk0/piway/internal/deploy"
+	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/history"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/server"
@@ -124,11 +127,37 @@ func run(cfg config.Config) error {
 	if hist != nil {
 		queries = hist
 	}
-	hooks, err := openWebhooks(cfg, log)
+	pipeline, err := openPipeline(cfg, log)
 	if err != nil {
 		return err
 	}
-	handler, err := server.New(ag, live, queries, hooks, ui)
+	var builds server.Builds // a true nil when deploys are off (see queries)
+	var deployer webhook.Deployer = logDeployer{log}
+	pipelineDone := make(chan struct{})
+	if pipeline != nil {
+		builds, deployer = pipeline, pipeline
+		go func() {
+			pipeline.Run(ctx)
+			close(pipelineDone)
+		}()
+	} else {
+		close(pipelineDone)
+	}
+	// Registered after the shutdown defer above, so it runs before it:
+	// cancel ctx here too, or Run would never return. A running build is
+	// cancelled and recorded.
+	defer func() {
+		stop()
+		<-pipelineDone
+	}()
+
+	hooks, err := openWebhooks(cfg, deployer, log)
+	if err != nil {
+		return err
+	}
+	handler, err := server.New(server.Deps{
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui,
+	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
 	}
@@ -181,7 +210,7 @@ func openHistory(cfg config.Config, log *slog.Logger) (*history.History, error) 
 
 // openWebhooks builds the GitHub webhook handler from webhook_secret and
 // the deploy targets in apps_file.
-func openWebhooks(cfg config.Config, log *slog.Logger) (http.Handler, error) {
+func openWebhooks(cfg config.Config, d webhook.Deployer, log *slog.Logger) (http.Handler, error) {
 	targets, err := webhook.LoadTargets(cfg.AppsFile)
 	if err != nil {
 		return nil, err
@@ -194,14 +223,44 @@ func openWebhooks(cfg config.Config, log *slog.Logger) (http.Handler, error) {
 	default:
 		log.Info("GitHub webhooks enabled", "targets", len(targets))
 	}
-	return webhook.New(cfg.WebhookSecret, targets, logDeployer{log}, log), nil
+	return webhook.New(cfg.WebhookSecret, targets, d, log), nil
 }
 
-// logDeployer records deploy requests until the build pipeline (#23)
-// takes them.
+// logDeployer records deploy requests when deploys are off (no Docker).
 type logDeployer struct{ log *slog.Logger }
 
 func (d logDeployer) Deploy(r webhook.Request) error {
-	d.log.Info("deploy requested (no build pipeline yet)", "repo", r.Repo, "branch", r.Branch, "commit", r.Commit)
+	d.log.Warn("deploy requested, but deploys are off (no Docker daemon)", "repo", r.Repo, "branch", r.Branch, "commit", r.Commit)
 	return nil
+}
+
+// openPipeline starts the build pipeline if a Docker daemon is reachable,
+// and returns nil (deploys off) otherwise.
+func openPipeline(cfg config.Config, log *slog.Logger) (*deploy.Pipeline, error) {
+	sock, err := docker.SocketPath(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	if !docker.Available(sock) {
+		log.Info("deploys disabled: no Docker daemon", "socket", sock, "setup", "docs/DOCKER.md")
+		return nil, nil
+	}
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		dataDir = config.DefaultDataDir()
+	}
+	p, err := deploy.New(deploy.Options{
+		Dir: filepath.Join(dataDir, "deploys"),
+		Steps: deploy.ExecSteps{
+			Docker:     docker.New(sock),
+			DockerHost: "unix://" + sock,
+			SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
+		},
+		Logger: log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("deploys: %w", err)
+	}
+	log.Info("deploys enabled", "docker", sock)
+	return p, nil
 }

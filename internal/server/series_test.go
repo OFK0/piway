@@ -128,7 +128,7 @@ func TestSeriesErrors(t *testing.T) {
 }
 
 func TestSeriesRoute(t *testing.T) {
-	h, err := New(stubSource{}, http.NotFoundHandler(), &fakeQuerier{}, http.NotFoundHandler(), nil)
+	h, err := New(Deps{Snapshots: stubSource{}, History: &fakeQuerier{}})
 	if err != nil {
 		t.Fatal(err)
 	}
