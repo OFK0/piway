@@ -1,0 +1,12 @@
+[Unit]
+Description=piway agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/piway -addr :8080
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,26 @@
+# piway
+
+Self-hosted metrics agent and mini PaaS for Raspberry Pi, written in Go.
+
+`git push` → build on the Pi → run in a container → served on a subdomain, with a live dashboard and an MCP server so Claude Code can operate it.
+
+## Quick start
+
+```sh
+make build
+./bin/piway -addr :8080
+curl localhost:8080/healthz
+```
+
+## Run as a user service
+
+```sh
+install -m755 bin/piway ~/.local/bin/piway
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/piway.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now piway
+```
+
+## Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) and the GitHub milestones.
