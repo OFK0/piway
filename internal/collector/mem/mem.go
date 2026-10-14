@@ -39,11 +39,7 @@ func Parse(data []byte) (Info, error) {
 
 	for len(data) > 0 {
 		var line []byte
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			line, data = data[:i], data[i+1:]
-		} else {
-			line, data = data, nil
-		}
+		line, data = procfs.NextLine(data)
 
 		key, rest, ok := bytes.Cut(line, []byte{':'})
 		if !ok {
@@ -92,18 +88,11 @@ func Parse(data []byte) (Info, error) {
 
 // parseKB parses a value such as "   3886840 kB" and returns it in bytes.
 func parseKB(b []byte) (uint64, error) {
-	b = bytes.TrimSpace(b)
-	num, unit, _ := bytes.Cut(b, []byte{' '})
-	if len(num) == 0 {
-		return 0, errors.New("empty value")
-	}
-
-	var v uint64
-	for _, c := range num {
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("unexpected byte %q", c)
-		}
-		v = v*10 + uint64(c-'0')
+	num, rest := procfs.NextField(b)
+	unit, _ := procfs.NextField(rest)
+	v, err := procfs.ParseUint(num)
+	if err != nil {
+		return 0, err
 	}
 
 	switch string(unit) {
