@@ -49,6 +49,16 @@ func (f *fakeBuilds) Follow(id string) ([]byte, <-chan []byte, func(), error) {
 	return []byte(f.past), f.live, func() {}, nil
 }
 
+func (f *fakeBuilds) Rollback(app string) (deploy.Build, error) {
+	switch app {
+	case "guestbook":
+		return deploy.Build{ID: "rb1", App: app, Kind: deploy.KindRollback, State: deploy.Queued}, nil
+	case "fresh":
+		return deploy.Build{}, deploy.ErrNoRollback
+	}
+	return deploy.Build{}, deploy.ErrNotFound
+}
+
 func buildsServer(t *testing.T, b Builds) http.Handler {
 	t.Helper()
 	h, err := New(Deps{Snapshots: stubSource{}, Builds: b})
@@ -128,5 +138,18 @@ func TestBuildLogStream(t *testing.T) {
 	}
 	if got.String() != "history\nstep 1\nstep 2\n" {
 		t.Errorf("streamed %q", got.String())
+	}
+}
+
+func TestRollbackAPI(t *testing.T) {
+	h := buildsServer(t, &fakeBuilds{})
+	if rec := serve(t, h, "POST", "/api/v1/apps/guestbook/rollback"); rec.Code != 202 || !strings.Contains(rec.Body.String(), `"kind":"rollback"`) {
+		t.Errorf("rollback: %d %s", rec.Code, rec.Body)
+	}
+	if rec := serve(t, h, "POST", "/api/v1/apps/fresh/rollback"); rec.Code != 409 {
+		t.Errorf("nothing to roll back: %d", rec.Code)
+	}
+	if rec := serve(t, h, "POST", "/api/v1/apps/nope/rollback"); rec.Code != 404 {
+		t.Errorf("unknown app: %d", rec.Code)
 	}
 }

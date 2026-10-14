@@ -194,6 +194,7 @@ deploys are off (no Docker daemon).
 | `GET /api/v1/builds/{id}/log` | The log so far, `text/plain`. |
 | `GET /api/v1/builds/{id}/log/stream` | WebSocket: the log so far, then new output as it is written, as text messages (not aligned to lines). Closes with `1000` when the build ends; at once for a finished or still-queued build. |
 | `POST /api/v1/builds/{id}/cancel` | `202 {"status":"cancelling"}`; `409` if it already finished; `404`. |
+| `POST /api/v1/apps/{name}/rollback` | `202` with the queued rollback `Build` (`"kind":"rollback"`, `"rollback_of"`); `409` if the app has no earlier successful build; `404` if it was never deployed. |
 
 ```json
 {
@@ -212,6 +213,7 @@ deploys are off (no Docker daemon).
 }
 ```
 
+`kind` is `"rollback"` for a rollback (absent for a push).
 `state` is `queued`, `running`, `succeeded`, `failed` or `cancelled`;
 `error` explains the last two. `app` and `image` appear once known.
 

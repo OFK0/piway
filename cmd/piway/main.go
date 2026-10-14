@@ -21,6 +21,7 @@ import (
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/history"
 	"github.com/ofk0/piway/internal/recorder"
+	"github.com/ofk0/piway/internal/router"
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
 	"github.com/ofk0/piway/internal/version"
@@ -127,7 +128,9 @@ func run(cfg config.Config) error {
 	if hist != nil {
 		queries = hist
 	}
-	pipeline, err := openPipeline(cfg, log)
+	routes := router.New(log)
+	defer routes.Close() // last: apps stay reachable until the end
+	pipeline, err := openPipeline(ctx, cfg, routes, log)
 	if err != nil {
 		return err
 	}
@@ -236,7 +239,7 @@ func (d logDeployer) Deploy(r webhook.Request) error {
 
 // openPipeline starts the build pipeline if a Docker daemon is reachable,
 // and returns nil (deploys off) otherwise.
-func openPipeline(cfg config.Config, log *slog.Logger) (*deploy.Pipeline, error) {
+func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router, log *slog.Logger) (*deploy.Pipeline, error) {
 	sock, err := docker.SocketPath(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -249,17 +252,23 @@ func openPipeline(cfg config.Config, log *slog.Logger) (*deploy.Pipeline, error)
 	if dataDir == "" {
 		dataDir = config.DefaultDataDir()
 	}
+	steps := deploy.ExecSteps{
+		Docker:     docker.New(sock),
+		Router:     routes,
+		DockerHost: "unix://" + sock,
+		SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
+	}
 	p, err := deploy.New(deploy.Options{
-		Dir: filepath.Join(dataDir, "deploys"),
-		Steps: deploy.ExecSteps{
-			Docker:     docker.New(sock),
-			DockerHost: "unix://" + sock,
-			SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
-		},
+		Dir:    filepath.Join(dataDir, "deploys"),
+		Steps:  steps,
 		Logger: log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("deploys: %w", err)
+	}
+	// Apps kept running while piway was down; serve them again.
+	if err := steps.Restore(ctx, p.Live); err != nil {
+		log.Warn("restore app routes", "err", err)
 	}
 	log.Info("deploys enabled", "docker", sock)
 	return p, nil
