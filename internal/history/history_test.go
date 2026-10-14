@@ -2,6 +2,7 @@ package history
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -207,5 +208,118 @@ func TestRawIsNotExpiredBeforeItIsRolledUp(t *testing.T) {
 	}
 	if minT, _, _ := h.Raw().Bounds(); minT != t0.UnixMilli() {
 		t.Errorf("raw data expired before it was rolled up (oldest now %v)", time.UnixMilli(minT))
+	}
+}
+
+func query(t *testing.T, h *History, name string, from, to time.Time, step time.Duration) Result {
+	t.Helper()
+	r, err := h.Query(name, from, to, step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestQueryShortRangeReadsRaw(t *testing.T) {
+	c := &clock{t: t0}
+	h := open(t, t.TempDir(), c, Retention{})
+	for i := range 60 {
+		appendAt(t, h, t0.Add(time.Duration(i)*time.Second), "cpu", float64(i%10))
+	}
+	r := query(t, h, "cpu", t0, t0.Add(time.Minute), 10*time.Second)
+	if r.Resolution != ResolutionRaw || r.Step != 10*time.Second {
+		t.Fatalf("resolution %s step %v, want raw 10s", r.Resolution, r.Step)
+	}
+	if len(r.Series) != 1 || len(r.Series[0].Points) != 6 {
+		t.Fatalf("got %+v, want 1 series of 6 points", r.Series)
+	}
+	p := r.Series[0].Points[0]
+	if p.T != t0.UnixMilli() || p.Min != 0 || p.Max != 9 || p.Avg != 4.5 {
+		t.Errorf("first bucket = %+v, want t0 min 0 max 9 avg 4.5", p)
+	}
+}
+
+func TestQueryLongRangeReadsRollups(t *testing.T) {
+	c := &clock{t: t0}
+	h := open(t, t.TempDir(), c, Retention{})
+	// Two hours, one sample every 10 s.
+	for i := range 720 {
+		appendAt(t, h, t0.Add(time.Duration(i)*10*time.Second), "cpu", 50)
+	}
+	c.t = t0.Add(2*time.Hour + time.Minute)
+	compact(t, h)
+
+	// 2 h at a 1 s step would be 7200 points: the step is raised to fit
+	// MaxPoints, and with steps of a minute or more the 1m tier is used.
+	r := query(t, h, "cpu", t0, t0.Add(2*time.Hour), time.Second)
+	if r.Resolution != ResolutionRaw || r.Step < 7*time.Second {
+		t.Errorf("2h at 1s: %s step %v, want raw with step raised to fit %d points", r.Resolution, r.Step, MaxPoints)
+	}
+	if n := len(r.Series[0].Points); n > MaxPoints {
+		t.Errorf("%d points, want at most %d", n, MaxPoints)
+	}
+
+	r = query(t, h, "cpu", t0, t0.Add(2*time.Hour), 5*time.Minute)
+	if r.Resolution != ResolutionMinute || r.Step != 5*time.Minute {
+		t.Fatalf("5m step: %s %v, want 1m tier with 5m step", r.Resolution, r.Step)
+	}
+	if n := len(r.Series[0].Points); n != 24 {
+		t.Errorf("%d points, want 24", n)
+	}
+	if p := r.Series[0].Points[0]; p.Avg != 50 || p.Min != 50 || p.Max != 50 {
+		t.Errorf("bucket = %+v, want 50s", p)
+	}
+}
+
+func TestQueryFallsBackWhenRawExpired(t *testing.T) {
+	c := &clock{t: t0}
+	h := open(t, t.TempDir(), c, Retention{Raw: time.Hour})
+	for m := range 4 * 60 {
+		appendAt(t, h, t0.Add(time.Duration(m)*time.Minute), "cpu", 1)
+	}
+	c.t = t0.Add(4*time.Hour + time.Minute)
+	compact(t, h) // raw before ~2h ago is gone; the 1m tier has it all
+
+	r := query(t, h, "cpu", t0, t0.Add(30*time.Minute), 10*time.Second)
+	if r.Resolution != ResolutionMinute {
+		t.Errorf("resolution %s, want 1m: raw no longer covers the start", r.Resolution)
+	}
+	if len(r.Series) != 1 || len(r.Series[0].Points) != 30 {
+		t.Errorf("got %d series / points %v", len(r.Series), r.Series)
+	}
+}
+
+func TestQueryMatchesLabelledSeries(t *testing.T) {
+	c := &clock{t: t0}
+	h := open(t, t.TempDir(), c, Retention{})
+	for _, p := range []tsdb.Point{
+		{Series: `net_rx{interface="wlan0"}`, Value: 1},
+		{Series: `net_rx{interface="eth0"}`, Value: 2},
+		{Series: "net_rx_total", Value: 3},
+	} {
+		if err := h.Append(t0.UnixMilli(), []tsdb.Point{p}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := query(t, h, "net_rx", t0, t0.Add(time.Minute), time.Minute)
+	var names []string
+	for _, s := range r.Series {
+		names = append(names, s.Name)
+	}
+	want := []string{`net_rx{interface="eth0"}`, `net_rx{interface="wlan0"}`}
+	if !slices.Equal(names, want) {
+		t.Errorf("series %v, want %v (labelled variants, not net_rx_total)", names, want)
+	}
+
+	r = query(t, h, `net_rx{interface="eth0"}`, t0, t0.Add(time.Minute), time.Minute)
+	if len(r.Series) != 1 || r.Series[0].Points[0].Avg != 2 {
+		t.Errorf("exact match: %+v", r.Series)
+	}
+}
+
+func TestQueryRejectsEmptyRange(t *testing.T) {
+	h := open(t, t.TempDir(), &clock{t: t0}, Retention{})
+	if _, err := h.Query("cpu", t0, t0, time.Minute); err == nil {
+		t.Error("empty range accepted")
 	}
 }

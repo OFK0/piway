@@ -93,3 +93,30 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export const fetchSnapshot = (signal?: AbortSignal) => getJSON<Snapshot>('/api/v1/snapshot', signal)
 export const fetchHealth = (signal?: AbortSignal) => getJSON<Health>('/healthz', signal)
+
+/** GET /api/v1/series (docs/API.md). Points are [time_ms, avg, min, max]. */
+export interface SeriesResponse {
+  resolution: 'raw' | '1m' | '1h'
+  step_seconds: number
+  from: string
+  to: string
+  series: { name: string; points: [number, number, number, number][] }[]
+}
+
+/** Thrown when the server records no history (data_dir is empty). */
+export class HistoryDisabledError extends Error {}
+
+export async function fetchSeries(
+  name: string,
+  params: { from: string; to?: string; step?: string },
+  signal?: AbortSignal,
+): Promise<SeriesResponse> {
+  const q = new URLSearchParams({ name, ...params })
+  const res = await fetch(`/api/v1/series?${q}`, { signal })
+  if (res.status === 503) throw new HistoryDisabledError('History is off (data_dir is empty).')
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.error ?? `/api/v1/series: HTTP ${res.status}`)
+  }
+  return res.json() as Promise<SeriesResponse>
+}

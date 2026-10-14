@@ -124,6 +124,50 @@ A metric is `null` when its collector
 
 Clients must handle `null` for every metric field.
 
+## `GET /api/v1/series`
+
+Recorded history of one metric (docs/STORAGE.md), averaged into buckets.
+
+| Parameter | Default | Description |
+| --------- | ------- | ----------- |
+| `name` | required | A series name. Without labels (`network_receive_bytes_per_second`) it also matches every labelled variant (`…{interface="eth0"}`), so a client can sum or compare them. With labels it matches exactly. |
+| `from` | `to` − 1h | RFC 3339 (`2026-10-14T10:00:00Z`), Unix milliseconds, or relative to now (`-24h`). |
+| `to` | now | Same formats. The range is half-open: `[from, to)`. |
+| `step` | range / 300 | Bucket size as a duration (`5m`). Raised so no series has more than 1000 points, and to at least the resolution read. |
+
+The server picks the resolution:
+
+| `resolution` | Used when |
+| ------------ | --------- |
+| `raw` | `step` < 1 min, the range is at most 6 h, and raw data reaches back to `from` |
+| `1m` | `step` < 1 h and per-minute rollups reach back to `from` |
+| `1h` | longer steps, or older ranges |
+
+```json
+{
+  "resolution": "1m",
+  "step_seconds": 300,
+  "from": "2026-10-13T12:00:00Z",
+  "to": "2026-10-14T12:00:00Z",
+  "series": [
+    {
+      "name": "cpu_usage_percent",
+      "points": [[1791892800000, 12.4, 3.1, 61.0], [1791893100000, 9.8, 2.5, 40.2]]
+    }
+  ]
+}
+```
+
+Each point is `[time_ms, avg, min, max]` for the bucket starting at
+`time_ms`. Buckets without data are omitted. A series name that matches
+nothing gives `"series": []`.
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | Result above. `Cache-Control: no-store`. |
+| `400` | Missing `name`, unparsable `from`/`to`/`step`, or `to` not after `from`. |
+| `503` | Recording is disabled (`data_dir` is empty). |
+
 ## `GET /api/v1/stream` (WebSocket)
 
 A one-way live stream of snapshots. Each text message is exactly the body of
