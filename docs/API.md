@@ -123,3 +123,31 @@ A metric is `null` when its collector
   startup (`disk.filesystems` is already filled).
 
 Clients must handle `null` for every metric field.
+
+## `GET /api/v1/stream` (WebSocket)
+
+A one-way live stream of snapshots. Each text message is exactly the body of
+`GET /api/v1/snapshot` (same schema, same `null` rules), sent once per
+collection round. Messages the client sends are ignored.
+
+```js
+const ws = new WebSocket(`ws://${location.host}/api/v1/stream`);
+ws.onmessage = (e) => render(JSON.parse(e.data));
+```
+
+- **First message:** if a round has already completed, the latest snapshot is
+  sent immediately on connect, so a client never waits a full interval for
+  data.
+- **Gaps:** `seq` increases by 1 per round. A jump means the client missed
+  rounds (for example, after reconnecting).
+- **Keepalive:** the server pings every 15 s. A client that does not answer
+  within 5 s is disconnected. Browsers answer pings automatically.
+- **Origin:** cross-origin upgrades are rejected (`403`), since the endpoint
+  has no authentication yet.
+
+### Close codes
+
+| Code | Reason | Meaning | Client should |
+| ---- | ------ | ------- | ------------- |
+| `1001` Going Away | `server shutting down` | piway is stopping or restarting. | Reconnect with backoff. |
+| `1013` Try Again Later | `too slow` | The client fell 8 snapshots behind (slow network or a stalled tab) and was dropped so it could not hold back other clients. | Reconnect with backoff. |

@@ -53,7 +53,8 @@ type Agent struct {
 	collectors []Collector
 	log        *slog.Logger
 
-	latest atomic.Pointer[Snapshot]
+	latest    atomic.Pointer[Snapshot]
+	onPublish []func(*Snapshot)
 
 	// Owned by the Run goroutine.
 	seq     uint64
@@ -72,6 +73,15 @@ func New(interval time.Duration, log *slog.Logger, collectors ...Collector) (*Ag
 		log:        log,
 		lastErr:    make([]string, len(collectors)),
 	}, nil
+}
+
+// OnPublish registers fn to be called with every new Snapshot, right after
+// Latest starts returning it. It must be called before Run.
+//
+// fn runs on the collection loop, so it must return quickly; hand slow work
+// to another goroutine. Like every reader, fn must not modify the Snapshot.
+func (a *Agent) OnPublish(fn func(*Snapshot)) {
+	a.onPublish = append(a.onPublish, fn)
 }
 
 // Latest returns the most recent Snapshot, or nil before the first round.
@@ -105,6 +115,9 @@ func (a *Agent) publish(ctx context.Context) {
 	a.seq++
 	s.Seq = a.seq
 	a.latest.Store(s)
+	for _, fn := range a.onPublish {
+		fn(s)
+	}
 }
 
 // collect runs one round. Each collector gets its own goroutine so a slow

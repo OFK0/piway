@@ -11,6 +11,7 @@ make build
 ./bin/piway -addr :8080
 curl localhost:8080/healthz
 curl localhost:8080/api/v1/snapshot   # see docs/API.md
+go run ./cmd/wsload -clients 100      # WebSocket load test
 ```
 
 ## Run as a user service

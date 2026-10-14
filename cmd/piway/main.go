@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/ofk0/piway/internal/agent"
 	"github.com/ofk0/piway/internal/server"
+	"github.com/ofk0/piway/internal/stream"
 	"github.com/ofk0/piway/internal/version"
 )
 
@@ -35,6 +37,10 @@ func main() {
 	}
 }
 
+// streamQueueLen is how many snapshots a WebSocket client may fall behind
+// before it is disconnected: 8 rounds is 8 seconds at the default interval.
+const streamQueueLen = 8
+
 func run(addr string, interval time.Duration) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -46,20 +52,37 @@ func run(addr string, interval time.Duration) error {
 	}
 	defer ag.Close()
 
+	hub := stream.NewHub(streamQueueLen)
+	live := stream.NewServer(hub, log)
+	ag.OnPublish(func(s *agent.Snapshot) {
+		// Encode once per round; every client is sent the same bytes.
+		b, err := json.Marshal(s)
+		if err != nil {
+			log.Error("encode snapshot", "err", err)
+			return
+		}
+		hub.Broadcast(b)
+	})
+
 	agentDone := make(chan struct{})
 	go func() {
 		ag.Run(ctx)
 		close(agentDone)
 	}()
-	// Stop collecting before the deferred Close releases the collectors' files.
+	go hub.Run(ctx)
+	// Runs after the HTTP server has shut down: cancelling ctx stops the
+	// agent (before the deferred Close releases the collectors' files) and
+	// the Hub, which tells every WebSocket to close. Shutdown does not track
+	// hijacked connections, so wait for their close handshakes here.
 	defer func() {
 		stop()
 		<-agentDone
+		live.Wait()
 	}()
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(ag),
+		Handler:           server.New(ag, live),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
