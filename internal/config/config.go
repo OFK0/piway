@@ -34,6 +34,10 @@ type Config struct {
 	FlushInterval time.Duration
 	// How long each history tier is kept (docs/STORAGE.md).
 	RetentionRaw, Retention1m, Retention1h time.Duration
+	// WebhookSecret verifies GitHub deliveries; empty disables webhooks.
+	WebhookSecret string
+	// AppsFile lists the repositories and branches that deploy (docs/DEPLOY.md).
+	AppsFile string
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -52,8 +56,21 @@ func Default() Config {
 		RetentionRaw:  24 * time.Hour,
 		Retention1m:   7 * day,
 		Retention1h:   365 * day,
+		AppsFile:      DefaultAppsFile(),
 	}
 }
+
+// DefaultAppsFile is apps.yaml next to the default config file.
+func DefaultAppsFile() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "piway", "apps.yaml")
+}
+
+// minWebhookSecret matches webhook.MinSecretLen.
+const minWebhookSecret = 16
 
 const day = 24 * time.Hour
 
@@ -115,6 +132,8 @@ type field struct {
 	// quote makes Print emit a double-quoted YAML string. Addresses need it:
 	// "[::1]:8080" would otherwise parse as a YAML list.
 	quote bool
+	// secret keeps the value out of -print-config output.
+	secret bool
 }
 
 var fields = []field{
@@ -209,6 +228,36 @@ var fields = []field{
 	retentionField("retention_raw", "every sample", func(c *Config) *time.Duration { return &c.RetentionRaw }),
 	retentionField("retention_1m", "per-minute rollups", func(c *Config) *time.Duration { return &c.Retention1m }),
 	retentionField("retention_1h", "per-hour rollups", func(c *Config) *time.Duration { return &c.Retention1h }),
+	{
+		key:   "webhook_secret",
+		usage: "shared `secret` for GitHub webhook signatures; empty disables webhooks",
+		set: func(c *Config, s string) error {
+			if s != "" && len(s) < minWebhookSecret {
+				return fmt.Errorf("must be at least %d characters (try: openssl rand -hex 32)", minWebhookSecret)
+			}
+			c.WebhookSecret = s
+			return nil
+		},
+		get:    func(c *Config) string { return c.WebhookSecret },
+		secret: true,
+	},
+	{
+		key:   "apps_file",
+		usage: "YAML `file` listing the repositories and branches that deploy",
+		set: func(c *Config, s string) error {
+			if rest, ok := strings.CutPrefix(s, "~/"); ok {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return err
+				}
+				s = filepath.Join(home, rest)
+			}
+			c.AppsFile = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.AppsFile },
+		quote: true,
+	},
 }
 
 func retentionField(key, what string, ptr func(*Config) *time.Duration) field {
@@ -403,6 +452,16 @@ func (l *Loaded) Print(w io.Writer) {
 	}
 	for _, f := range fields {
 		v := f.get(&l.Config)
+		if f.secret {
+			// Never print a secret. A comment, so the output still reads
+			// back as a config without inventing a value.
+			state := "not set"
+			if v != "" {
+				state = "set, hidden"
+			}
+			fmt.Fprintf(w, "# %s: (%s)  # %s\n", f.key, state, l.Sources[f.key])
+			continue
+		}
 		if f.quote {
 			v = strconv.Quote(v) // Go and YAML double-quoted escapes agree for printable text
 		}

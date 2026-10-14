@@ -23,7 +23,7 @@ var testUI = fstest.MapFS{
 
 func newUIServer(t *testing.T) http.Handler {
 	t.Helper()
-	h, err := New(stubSource{}, http.NotFoundHandler(), nil, testUI)
+	h, err := New(stubSource{}, http.NotFoundHandler(), nil, http.NotFoundHandler(), testUI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestDashboardMissing(t *testing.T) {
 }
 
 func TestDashboardWithoutIndexIsAnError(t *testing.T) {
-	_, err := New(stubSource{}, http.NotFoundHandler(), nil, fstest.MapFS{"assets/a.js": {}})
+	_, err := New(stubSource{}, http.NotFoundHandler(), nil, http.NotFoundHandler(), fstest.MapFS{"assets/a.js": {}})
 	if err == nil {
 		t.Fatal("New accepted a dashboard without index.html")
 	}
