@@ -3,7 +3,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/ofk0/piway/internal/version.Version=$(VERSION) \
            -X github.com/ofk0/piway/internal/version.Commit=$(COMMIT)
 
-.PHONY: build build-go web web-lint run test test-race lint fmt clean
+.PHONY: build build-go web web-lint web-test run test test-race lint fmt clean
 
 # build: the dashboard first, then a binary that embeds it (internal/webui).
 # build-go: the binary alone, serving the API only (no Node needed).
@@ -24,6 +24,9 @@ web: web/node_modules/.package-lock.json
 
 web-lint: web/node_modules/.package-lock.json
 	cd web && npm run lint
+
+web-test: web/node_modules/.package-lock.json
+	cd web && npm test
 
 run: build
 	./bin/piway

@@ -1,5 +1,4 @@
 import {
-  ArrowClockwiseIcon,
   CpuIcon,
   HardDrivesIcon,
   MemoryIcon,
@@ -8,56 +7,90 @@ import {
   WarningCircleIcon,
   WarningIcon,
 } from '@phosphor-icons/react'
+import { lazy, Suspense, useCallback, useState } from 'react'
 
 import type { Snapshot } from '@/api'
 import { AppShell } from '@/components/app-shell'
+import { ConnectionStatus } from '@/components/connection-status'
+import type { Range } from '@/components/live-charts'
 import { MetricCard, MetricCardSkeleton } from '@/components/metric-card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Spinner } from '@/components/ui/spinner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useSnapshot } from '@/hooks/use-snapshot'
+import { useHealth } from '@/hooks/use-health'
+import { useLive } from '@/hooks/use-live'
+import { useNow } from '@/hooks/use-now'
 import { bytes, bytesParts, percent, rate } from '@/format'
 import { cpuStatus, hardwareAlerts, missingReason, temperatureStatus, usageStatus } from '@/lib/metrics'
+import { cn } from '@/lib/utils'
+
+// Recharts is large; metric cards render first, charts follow.
+const LiveCharts = lazy(() => import('@/components/live-charts'))
+
+// The chart range lives in the URL (?range=1m) so a link shows the same view.
+function useRange(): [Range, (r: Range) => void] {
+  const [range, setRange] = useState<Range>(() =>
+    new URLSearchParams(window.location.search).get('range') === '1m' ? '1m' : '5m',
+  )
+  const update = useCallback((r: Range) => {
+    setRange(r)
+    const url = new URL(window.location.href)
+    if (r === '5m') url.searchParams.delete('range')
+    else url.searchParams.set('range', r)
+    window.history.replaceState(null, '', url)
+  }, [])
+  return [range, update]
+}
 
 export function OverviewPage() {
-  const { snapshot, health, error, loading, receivedAt, refresh } = useSnapshot()
+  const live = useLive()
+  const health = useHealth()
+  const [range, setRange] = useRange()
+  const s = live.latest
+  const disconnected = live.status !== 'live' && s !== null
+  // Ages the "values from" note; runs only while disconnected.
+  useNow(disconnected, 5000)
 
   return (
-    <AppShell footer={health && <span>piway {health.version}</span>}>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="type-display">Overview</h1>
-          <p className="text-muted-foreground">
-            {receivedAt ? (
-              <>
-                Updated at <time dateTime={receivedAt.toISOString()}>{receivedAt.toLocaleTimeString()}</time>
-              </>
-            ) : (
-              'Health of this Raspberry Pi.'
-            )}
-          </p>
-        </div>
-        <Button variant="outline" onClick={refresh} disabled={loading}>
-          {loading ? <Spinner data-icon="inline-start" /> : <ArrowClockwiseIcon data-icon="inline-start" />}
-          Refresh
-        </Button>
+    <AppShell
+      actions={<ConnectionStatus state={live} onRetry={live.retryNow} />}
+      footer={health && <span>piway {health.version}</span>}
+    >
+      <div className="flex flex-col gap-1">
+        <h1 className="type-display">Overview</h1>
+        <p className="text-muted-foreground">
+          {disconnected && live.receivedAt ? (
+            <>
+              Disconnected. Showing values from{' '}
+              <time dateTime={new Date(live.receivedAt).toISOString()}>
+                {new Date(live.receivedAt).toLocaleTimeString()}
+              </time>
+              .
+            </>
+          ) : (
+            'Live health of this Raspberry Pi.'
+          )}
+        </p>
       </div>
 
-      {error && snapshot && (
-        <Alert variant="destructive">
-          <WarningCircleIcon />
-          <AlertTitle>Couldn't refresh</AlertTitle>
-          <AlertDescription>{error}. Showing the last values received.</AlertDescription>
-        </Alert>
-      )}
-
-      {error && !snapshot ? (
-        <Unreachable error={error} onRetry={refresh} retrying={loading} />
-      ) : snapshot ? (
-        <SnapshotView s={snapshot} />
+      {s ? (
+        // While disconnected the last values stay readable but visibly stale.
+        <div
+          aria-busy={disconnected}
+          className={cn('flex flex-col gap-8 transition-opacity', disconnected && 'opacity-60')}
+        >
+          <SnapshotView s={s} />
+          <Suspense fallback={<ChartsSkeleton />}>
+            <LiveCharts history={live.history} range={range} onRangeChange={setRange} />
+          </Suspense>
+          <Tables s={s} />
+          <CollectorErrors s={s} />
+        </div>
+      ) : live.attempts >= 2 ? (
+        <Unreachable retryAt={live.retryAt} onRetry={live.retryNow} />
       ) : (
         <section aria-label="Loading metrics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
@@ -69,7 +102,19 @@ export function OverviewPage() {
   )
 }
 
-function Unreachable(props: { error: string; onRetry: () => void; retrying: boolean }) {
+function ChartsSkeleton() {
+  return (
+    <div aria-hidden="true" className="grid gap-4 lg:grid-cols-2">
+      {[0, 1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-64" />
+      ))}
+    </div>
+  )
+}
+
+function Unreachable(props: { retryAt: number | null; onRetry: () => void }) {
+  const now = useNow(true)
+  const seconds = props.retryAt ? Math.max(0, Math.ceil((props.retryAt - now) / 1000)) : 0
   return (
     <Empty className="border">
       <EmptyHeader>
@@ -78,14 +123,12 @@ function Unreachable(props: { error: string; onRetry: () => void; retrying: bool
         </EmptyMedia>
         <EmptyTitle>Can't reach piway</EmptyTitle>
         <EmptyDescription>
-          {props.error}. Check that the agent is running, then try again.
+          Check that the agent is running.{' '}
+          {seconds > 0 ? `Trying again in ${seconds}\u00a0s.` : 'Trying again…'}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button onClick={props.onRetry} disabled={props.retrying}>
-          {props.retrying && <Spinner data-icon="inline-start" />}
-          Try again
-        </Button>
+        <Button onClick={props.onRetry}>Try now</Button>
       </EmptyContent>
     </Empty>
   )
@@ -161,11 +204,23 @@ function SnapshotView({ s }: { s: Snapshot }) {
         </MetricCard>
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <NetworkCard s={s} />
-        <DisksCard s={s} />
-      </div>
+    </>
+  )
+}
 
+function Tables({ s }: { s: Snapshot }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <NetworkCard s={s} />
+      <DisksCard s={s} />
+    </div>
+  )
+}
+
+function CollectorErrors({ s }: { s: Snapshot }) {
+  if (!s.errors) return null
+  return (
+    <>
       {s.errors && (
         <Alert>
           <WarningIcon />
@@ -209,7 +264,7 @@ function NetworkCard({ s }: { s: Snapshot }) {
     <Card>
       <CardHeader>
         <CardTitle className="type-title">Network</CardTitle>
-        <CardDescription>Throughput since the previous sample.</CardDescription>
+        <CardDescription>Throughput since the previous sample. Errors include dropped packets.</CardDescription>
       </CardHeader>
       <CardContent>
         {s.network && s.network.length > 0 ? (
@@ -219,7 +274,7 @@ function NetworkCard({ s }: { s: Snapshot }) {
                 <TableHead>Interface</TableHead>
                 <TableHead className="text-right">Receive</TableHead>
                 <TableHead className="text-right">Send</TableHead>
-                <TableHead className="text-right">Errors and drops</TableHead>
+                <TableHead className="text-right">Errors</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

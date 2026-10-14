@@ -30,5 +30,5 @@ points below are easy to miss.
 
 ```sh
 make lint && make test     # Go
-make web-lint && make web  # dashboard
+make web-lint && make web-test && make web  # dashboard
 ```

@@ -178,6 +178,21 @@ align in a row.
 | Invalid | `destructive` border plus an error message under the field. |
 | Loading | `Spinner` before the label, control disabled, label unchanged. |
 
+## Live data
+
+The overview streams one snapshot per interval over `/api/v1/stream`.
+
+| Connection | Header indicator | Page |
+| ---------- | ---------------- | ---- |
+| Live | Raspberry dot with a soft pulse, "Live" | Values update in place, without animation. |
+| Connecting | Spinner, "Connecting…" | Skeletons until the first snapshot. |
+| Reconnecting | "Reconnecting in 3 s" and a *Retry now* button | Last values stay, dimmed to 60%, with "Disconnected. Showing values from 14:09:16." |
+| Offline | "Offline" | As reconnecting; retries resume when the browser is back online. |
+
+- Never blank the page on a lost connection: stale data is still useful, as long as it is marked stale.
+- The chart range (1 or 5 minutes) is in the URL (`?range=1m`) so a link shows the same view.
+- State changes are announced through an `aria-live` region. The countdown is not.
+
 ## Data visualization
 
 Charts use Recharts through shadcn's `Chart`, with colors from `--chart-*`.
