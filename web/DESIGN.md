@@ -239,6 +239,10 @@ follow a value going up or down without reading every digit.
   scale instead: memory used is shown in the unit of the total.
 - **Layout never moves.** Animated numbers use tabular figures, and nothing
   else (badges, rows, colors) animates with them. Status changes are instant.
+  Tables with live values use fixed column widths (`table-fixed` and a
+  `<colgroup>`), sized for the widest value a column can show (`1023.9 KiB/s`),
+  so a value that grows never pushes its neighbours. Long identifiers are
+  truncated with the full name in a tooltip.
 - **Never animate identifiers or text,** only quantities.
 - **Reduced motion:** numbers jump to the new value (`useReducedMotion`), and
   meters follow the global reduced-motion rule in `index.css`.
