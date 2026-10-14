@@ -34,10 +34,12 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
       <footer className="mx-auto w-full max-w-7xl px-4 pb-6 md:px-6">
         <Separator className="mb-4" />
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 type-caption text-muted-foreground">
-          {props.footer}
           <a href="/design-system" className="underline-offset-4 hover:text-foreground hover:underline">
             Design system
           </a>
+          {/* Last, so the link does not move when loaded content of unknown
+              width (the version) arrives. */}
+          {props.footer}
         </div>
       </footer>
     </div>
