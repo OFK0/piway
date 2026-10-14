@@ -73,6 +73,9 @@ changes that span the whole repository.
 | `api` | `docs/API.md` and API compatibility |
 | `tsdb` | `internal/tsdb` |
 | `prom` | `internal/prom` (the `/metrics` endpoint) |
+| `recorder` | `internal/recorder` (snapshots to the store) |
+| `history` | `internal/history` (rollups and retention) |
+| `manifest` | `internal/manifest`, `docs/MANIFEST.md` (`piway.yaml`) |
 
 Add new scopes here when a new package or area appears.
 
