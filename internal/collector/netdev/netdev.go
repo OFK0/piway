@@ -36,6 +36,9 @@ type Interface struct {
 	TxErrors  uint64 `json:"tx_errors"`
 	RxDropped uint64 `json:"rx_dropped"`
 	TxDropped uint64 `json:"tx_dropped"`
+	// Totals are the raw cumulative counters at this sample, for consumers
+	// that compute their own rates (Prometheus). Not part of the JSON API.
+	Totals Counters `json:"-"`
 }
 
 // ParseLine decodes one interface line such as "  wlan0: 2107 223 0 0 ...".
@@ -153,6 +156,7 @@ func (c *Collector) Sample(now time.Time, dst []Interface) ([]Interface, error) 
 				TxErrors:        cur.TxErrors,
 				RxDropped:       cur.RxDropped,
 				TxDropped:       cur.TxDropped,
+				Totals:          cur,
 			})
 		}
 		st.prev = cur

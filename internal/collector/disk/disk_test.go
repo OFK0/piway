@@ -154,6 +154,7 @@ func TestSampleRates(t *testing.T) {
 		WriteOpsPerSec:   20,
 		BusyPercent:      25,
 		WrittenBytes:     6096 * 512,
+		Totals:           Counters{ReadsCompleted: 140, SectorsRead: 3048, WritesCompleted: 90, SectorsWritten: 6096, IOTimeMs: 600},
 	}
 	if s.Devices[0] != want {
 		t.Errorf("Device =\n %+v\nwant\n %+v", s.Devices[0], want)

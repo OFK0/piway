@@ -43,6 +43,9 @@ type Stat struct {
 type Usage struct {
 	Total   float64   `json:"total"`
 	PerCore []float64 `json:"per_core"`
+	// Cores is each core's cumulative time at this sample, for consumers
+	// that compute their own rates (Prometheus). Not part of the JSON API.
+	Cores []Times `json:"-"`
 }
 
 var (
@@ -172,6 +175,7 @@ func (c *Collector) Sample(u *Usage) (bool, error) {
 		for i := range c.cur.Cores {
 			u.PerCore = append(u.PerCore, busyPercent(c.prev.Cores[i], c.cur.Cores[i]))
 		}
+		u.Cores = append(u.Cores[:0], c.cur.Cores...)
 	}
 
 	// Swap rather than copy so both Core slices keep their capacity.
