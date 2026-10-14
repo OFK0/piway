@@ -66,9 +66,10 @@ same change.
 4. **Every state is visible without color.** Status always pairs color with an
    icon and a word. Focus is a 2px outline. Disabled is reduced opacity plus
    `not-allowed`.
-5. **Calm motion.** Data updates in place without animation. Motion is used only
-   to answer a user action (open, close, expand), stays under 200ms, and is
-   removed under `prefers-reduced-motion`.
+5. **Calm motion.** Motion either answers a user action (open, close, expand,
+   under 200ms) or lets a changing number glide to its new value (see
+   [Motion](#motion)). Nothing moves for decoration, and everything is instant
+   under `prefers-reduced-motion`.
 
 ## Color
 
@@ -184,7 +185,7 @@ The overview streams one snapshot per interval over `/api/v1/stream`.
 
 | Connection | Header indicator | Page |
 | ---------- | ---------------- | ---- |
-| Live | Raspberry dot with a soft pulse, "Live" | Values update in place, without animation. |
+| Live | Raspberry dot with a soft pulse, "Live" | Values update in place; numbers and meters glide to each new value (see [Motion](#motion)). |
 | Connecting | Spinner, "Connecting…" | Skeletons until the first snapshot. |
 | Reconnecting | "Reconnecting in 3 s" and a *Retry now* button | Last values stay, dimmed to 60%, with "Disconnected. Showing values from 14:09:16." |
 | Offline | "Offline" | As reconnecting; retries resume when the browser is back online. |
@@ -216,6 +217,31 @@ Charts use Recharts through shadcn's `Chart`, with colors from `--chart-*`.
 - One y-axis per chart. Grid and axes are recessive (`border`, `muted-foreground`).
 - Hover shows a crosshair and a tooltip with the exact value and time.
 - Values in text use text tokens, never the series color.
+
+## Motion
+
+Numbers change every second, so they glide instead of snapping: the eye can
+follow a value going up or down without reading every digit.
+
+| What | How | Duration |
+| ---- | --- | -------- |
+| Numbers (metric values, per-core %, chart headline, table cells, captions) | `AnimatedNumber`, tweened with Motion | 600 ms, ease-out |
+| Meters (`Progress`, per-core bars) | CSS `transition-[width]` | 600 ms, ease-out |
+
+- **Only changes animate.** A number appears as itself on first render; there
+  is no count-up from zero.
+- **Settle before the next sample.** 600 ms leaves the value still for the rest
+  of the default 1 s interval. A new value interrupts a running tween from the
+  number on screen, so it never jumps back.
+- **Format every frame.** `AnimatedNumber` takes the same `format` function the
+  static text would use (`rate`, `bytes`, `percent`), so units and decimals
+  stay right mid-tween. A number whose unit could flip mid-tween uses a fixed
+  scale instead: memory used is shown in the unit of the total.
+- **Layout never moves.** Animated numbers use tabular figures, and nothing
+  else (badges, rows, colors) animates with them. Status changes are instant.
+- **Never animate identifiers or text,** only quantities.
+- **Reduced motion:** numbers jump to the new value (`useReducedMotion`), and
+  meters follow the global reduced-motion rule in `index.css`.
 
 ## Loading
 

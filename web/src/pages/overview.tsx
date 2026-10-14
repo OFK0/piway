@@ -10,6 +10,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import type { Snapshot } from '@/api'
+import { AnimatedNumber } from '@/components/animated-number'
 import { AppShell } from '@/components/app-shell'
 import { ConnectionStatus } from '@/components/connection-status'
 import type { Range } from '@/components/live-charts'
@@ -23,7 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useHealth } from '@/hooks/use-health'
 import { useLive } from '@/hooks/use-live'
 import { useNow } from '@/hooks/use-now'
-import { bytes, bytesParts, percent, rate } from '@/format'
+import { byteScale, bytes, count, percent, rate } from '@/format'
 import { cpuStatus, hardwareAlerts, missingReason, temperatureStatus, usageStatus } from '@/lib/metrics'
 import { loadShape, saveShape, type SnapshotShape } from '@/lib/snapshot-shape'
 import { cn } from '@/lib/utils'
@@ -169,7 +170,9 @@ function SnapshotView({ s }: { s: Snapshot }) {
   const root = s.disk?.filesystems.find((f) => f.path === '/')
   const mem = s.memory
   const memPercent = mem ? (mem.used_bytes / mem.total_bytes) * 100 : 0
-  const memUsed = mem ? bytesParts(mem.used_bytes) : null
+  // Used memory in the unit of the total, so the unit does not flip while the
+  // number animates across 1024.
+  const memScale = mem ? byteScale(mem.total_bytes) : null
 
   return (
     <>
@@ -191,7 +194,7 @@ function SnapshotView({ s }: { s: Snapshot }) {
         <MetricCard
           title="CPU"
           icon={CpuIcon}
-          value={s.cpu ? s.cpu.total.toFixed(1) : null}
+          value={s.cpu?.total ?? null}
           unit="%"
           meter={s.cpu?.total}
           missingReason={missingReason(s, 'cpu', true)}
@@ -202,18 +205,22 @@ function SnapshotView({ s }: { s: Snapshot }) {
         <MetricCard
           title="Memory"
           icon={MemoryIcon}
-          value={memUsed?.value ?? null}
-          unit={memUsed?.unit}
+          value={mem && memScale ? mem.used_bytes / memScale.div : null}
+          unit={memScale?.unit}
           meter={memPercent}
           missingReason={missingReason(s, 'memory', false)}
           status={mem ? usageStatus(memPercent) : undefined}
         >
-          {mem && <>of {bytes(mem.total_bytes)}, {bytes(mem.available_bytes)} available</>}
+          {mem && (
+            <>
+              of {bytes(mem.total_bytes)}, <AnimatedNumber value={mem.available_bytes} format={bytes} /> available
+            </>
+          )}
         </MetricCard>
         <MetricCard
           title="Temperature"
           icon={ThermometerIcon}
-          value={temp !== null ? temp.toFixed(1) : null}
+          value={temp}
           unit="°C"
           missingReason={missingReason(s, 'thermal', false)}
           status={temp !== null ? temperatureStatus(temp) : undefined}
@@ -223,13 +230,17 @@ function SnapshotView({ s }: { s: Snapshot }) {
         <MetricCard
           title="Storage"
           icon={HardDrivesIcon}
-          value={root ? root.used_percent.toFixed(1) : null}
+          value={root?.used_percent ?? null}
           unit="% used"
           meter={root?.used_percent}
           missingReason={missingReason(s, 'disk', false)}
           status={root ? usageStatus(root.used_percent) : undefined}
         >
-          {root && <>{bytes(root.avail_bytes)} free of {bytes(root.total_bytes)}</>}
+          {root && (
+            <>
+              <AnimatedNumber value={root.avail_bytes} format={bytes} /> free of {bytes(root.total_bytes)}
+            </>
+          )}
         </MetricCard>
       </section>
 
@@ -270,17 +281,22 @@ function CollectorErrors({ s }: { s: Snapshot }) {
   )
 }
 
+const wholePercent = (n: number) => `${n.toFixed(0)}%`
+
 function CoreMeters({ cores }: { cores: number[] }) {
   return (
     <ul className="grid grid-cols-4 gap-2" aria-label="Per-core usage">
       {cores.map((c, i) => (
         <li key={i} className="flex flex-col gap-1">
           <span className="h-1 w-full bg-muted" aria-hidden="true">
-            <span className="block h-full bg-foreground" style={{ width: `${Math.min(c, 100)}%` }} />
+            <span
+              className="block h-full bg-foreground transition-[width] duration-600 ease-out"
+              style={{ width: `${Math.min(c, 100)}%` }}
+            />
           </span>
-          <span className="tabular-nums">
+          <span>
             <span className="sr-only">Core {i + 1}: </span>
-            {c.toFixed(0)}%
+            <AnimatedNumber value={c} format={wholePercent} />
           </span>
         </li>
       ))}
@@ -364,7 +380,15 @@ interface Row {
 function networkRows(s: Snapshot): Row[] {
   return (s.network ?? []).map((n) => {
     const errs = n.rx_errors + n.tx_errors + n.rx_dropped + n.tx_dropped
-    return { key: n.name, cells: [n.name, rate(n.rx_bytes_per_sec), rate(n.tx_bytes_per_sec), errs] }
+    return {
+      key: n.name,
+      cells: [
+        n.name,
+        <AnimatedNumber key="rx" value={n.rx_bytes_per_sec} format={rate} />,
+        <AnimatedNumber key="tx" value={n.tx_bytes_per_sec} format={rate} />,
+        <AnimatedNumber key="errors" value={errs} format={count} />,
+      ],
+    }
   })
 }
 
@@ -373,10 +397,10 @@ function diskRows(s: Snapshot): Row[] {
     key: d.name,
     cells: [
       d.name,
-      rate(d.read_bytes_per_sec),
-      rate(d.write_bytes_per_sec),
-      percent(d.busy_percent),
-      bytes(d.written_bytes),
+      <AnimatedNumber key="read" value={d.read_bytes_per_sec} format={rate} />,
+      <AnimatedNumber key="write" value={d.write_bytes_per_sec} format={rate} />,
+      <AnimatedNumber key="busy" value={d.busy_percent} format={percent} />,
+      <AnimatedNumber key="written" value={d.written_bytes} format={bytes} />,
     ],
   }))
 }

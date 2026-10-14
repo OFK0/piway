@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts'
 
 import type { Snapshot } from '@/api'
+import { AnimatedNumber } from '@/components/animated-number'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   ChartContainer,
@@ -201,7 +202,11 @@ function ChartCard(props: {
       <CardHeader>
         <CardTitle className="type-label">{props.title}</CardTitle>
         <CardAction className="type-label tabular-nums">
-          {props.current == null ? '—' : `${props.current.toFixed(1)} ${props.unit}`}
+          {props.current == null ? (
+            '—'
+          ) : (
+            <AnimatedNumber value={props.current} format={(n) => `${n.toFixed(1)}\u00a0${props.unit}`} />
+          )}
         </CardAction>
       </CardHeader>
       <CardContent>

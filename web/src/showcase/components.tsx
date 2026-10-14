@@ -236,17 +236,22 @@ function Inputs() {
 }
 
 function DataDisplay() {
+  // The first card takes a new sample on demand to show the number motion.
+  const [cpu, setCpu] = useState(12.4)
   return (
     <>
-      <Block title="Metric card" description="Typical, critical, missing and loading. A missing value is a dash with a reason, never 0.">
+      <Block
+        title="Metric card"
+        description="Typical, critical, missing and loading. A missing value is a dash with a reason, never 0. A new value glides in."
+      >
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard title="CPU" icon={CpuIcon} value="12.4" unit="%" meter={12.4}>
+          <MetricCard title="CPU" icon={CpuIcon} value={cpu} unit="%" meter={cpu}>
             4 cores
           </MetricCard>
           <MetricCard
             title="Temperature"
             icon={ThermometerIcon}
-            value="82.1"
+            value={82.1}
             unit="°C"
             status={{ level: 'critical', label: 'Hot' }}
           >
@@ -260,6 +265,9 @@ function DataDisplay() {
           />
           <MetricCardSkeleton title="Memory" icon={MemoryIcon} meter />
         </div>
+        <Button variant="outline" className="mt-4 w-fit" onClick={() => setCpu(Math.round(Math.random() * 1000) / 10)}>
+          Next sample
+        </Button>
       </Block>
 
       <div className="grid gap-6 lg:grid-cols-2">
