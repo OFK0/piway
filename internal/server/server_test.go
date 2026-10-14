@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,5 +153,18 @@ func TestSnapshotMethodNotAllowed(t *testing.T) {
 	}
 	if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
 		t.Errorf("Allow = %q, want \"GET, HEAD\"", allow)
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	rec := serve(t, newServer(t, stubSource{&agent.Snapshot{Seq: 1}}), http.MethodGet, "/metrics")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain; version=0.0.4") {
+		t.Errorf("Content-Type = %q, want the Prometheus text format", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "piway_snapshot_timestamp_seconds ") {
+		t.Errorf("body has no snapshot timestamp:\n%s", rec.Body)
 	}
 }

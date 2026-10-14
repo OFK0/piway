@@ -1,7 +1,7 @@
 # HTTP API
 
-All endpoints return JSON (`Content-Type: application/json`). Errors use a
-single shape:
+All endpoints except [`/metrics`](#get-metrics) return JSON
+(`Content-Type: application/json`). Errors use a single shape:
 
 ```json
 { "error": "human-readable message" }
@@ -151,6 +151,45 @@ ws.onmessage = (e) => render(JSON.parse(e.data));
 | ---- | ------ | ------- | ------------- |
 | `1001` Going Away | `server shutting down` | piway is stopping or restarting. | Reconnect with backoff. |
 | `1013` Try Again Later | `too slow` | The client fell 8 snapshots behind (slow network or a stalled tab) and was dropped so it could not hold back other clients. | Reconnect with backoff. |
+
+## `GET /metrics`
+
+The newest snapshot in the [Prometheus text format](https://prometheus.io/docs/instrumenting/exposition_formats/)
+(`Content-Type: text/plain; version=0.0.4`), for Prometheus, Grafana Agent
+or any compatible scraper. The output passes `promtool check metrics`.
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: piway
+    static_configs:
+      - targets: ["<pi-address>:8080"]
+```
+
+Values use base units (seconds, bytes, degrees Celsius). Unlike the JSON API,
+CPU, disk and network are cumulative counters, not rates: use `rate()` over
+them, so no activity between scrapes is lost at any scrape interval.
+
+| Metric | Type | Labels | Meaning |
+| ------ | ---- | ------ | ------- |
+| `piway_build_info` | gauge | `version`, `commit`, `goversion` | Always 1. |
+| `piway_snapshot_timestamp_seconds` | gauge | | When the newest snapshot was collected. `time() - piway_snapshot_timestamp_seconds` shows a stalled agent. |
+| `piway_cpu_seconds_total` | counter | `cpu`, `mode` | Time per core in `user`, `nice`, `system`, `idle`, `iowait`, `irq`, `softirq`, `steal`. |
+| `piway_memory_{total,available,free,buffers,cached}_bytes` | gauge | | From `/proc/meminfo`. Used is `total - available`. |
+| `piway_memory_swap_{total,free}_bytes` | gauge | | Swap size and unused swap. |
+| `piway_cpu_temperature_celsius` | gauge | | SoC temperature. |
+| `piway_throttle_active` | gauge | `condition` | 1 while the firmware reports `under_voltage`, `freq_capped`, `throttled` or `soft_temp_limit`. |
+| `piway_throttle_occurred` | gauge | `condition` | 1 if the condition has happened since boot. |
+| `piway_disk_{read,written}_bytes_total` | counter | `device` | Bytes read and written by each physical disk. |
+| `piway_disk_{reads,writes}_completed_total` | counter | `device` | Requests completed. |
+| `piway_disk_io_time_seconds_total` | counter | `device` | Time with at least one request in flight; `rate()` of it is the busy fraction. |
+| `piway_filesystem_{size,used,avail}_bytes` | gauge | `mountpoint` | Filesystem space. |
+| `piway_network_{receive,transmit}_{bytes,packets,errors,drop}_total` | counter | `interface` | Per interface, excluding loopback and Docker `veth*`. |
+
+- A metric whose collector is unavailable or failed this round is left out,
+  as `null` is in the JSON API. Before the first round, only
+  `piway_build_info` is reported.
+- Series appear and disappear with their device or interface.
 
 ## Dashboard
 

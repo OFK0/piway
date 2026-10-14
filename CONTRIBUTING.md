@@ -71,6 +71,8 @@ changes that span the whole repository.
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |
 | `api` | `docs/API.md` and API compatibility |
+| `tsdb` | `internal/tsdb` |
+| `prom` | `internal/prom` (the `/metrics` endpoint) |
 
 Add new scopes here when a new package or area appears.
 

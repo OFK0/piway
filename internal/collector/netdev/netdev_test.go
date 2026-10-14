@@ -121,7 +121,10 @@ func TestSampleRates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Interface{Name: "eth0", RxBytesPerSec: 1000, TxBytesPerSec: 500, RxPacketsPerSec: 10, TxPacketsPerSec: 5, RxErrors: 1}
+	want := Interface{
+		Name: "eth0", RxBytesPerSec: 1000, TxBytesPerSec: 500, RxPacketsPerSec: 10, TxPacketsPerSec: 5, RxErrors: 1,
+		Totals: Counters{RxBytes: 5000, RxPackets: 50, RxErrors: 1, TxBytes: 2500, TxPackets: 25},
+	}
 	if len(ifs) != 1 || ifs[0] != want {
 		t.Fatalf("Sample = %+v, want [%+v]", ifs, want)
 	}

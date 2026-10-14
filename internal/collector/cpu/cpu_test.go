@@ -145,6 +145,9 @@ func TestCollectorSample(t *testing.T) {
 	if len(u.PerCore) != 2 || u.PerCore[0] != 100 || u.PerCore[1] != 0 {
 		t.Errorf("PerCore = %v, want [100 0]", u.PerCore)
 	}
+	if len(u.Cores) != 2 || u.Cores[0] != (Times{User: 100}) || u.Cores[1] != (Times{Idle: 100}) {
+		t.Errorf("Cores = %+v, want the cumulative times of this sample", u.Cores)
+	}
 
 	// A core going offline invalidates the previous sample.
 	writeStat(t, path, "cpu 200 0 0 100\ncpu0 200 0 0 0\n")

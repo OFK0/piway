@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/ofk0/piway/internal/agent"
+	"github.com/ofk0/piway/internal/prom"
 	"github.com/ofk0/piway/internal/version"
 )
 
@@ -30,6 +31,7 @@ func New(snapshots SnapshotSource, live http.Handler, ui fs.FS) (http.Handler, e
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /api/v1/snapshot", snapshot(snapshots))
 	mux.Handle("GET /api/v1/stream", live)
+	mux.Handle("GET /metrics", prom.Handler(snapshots.Latest))
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,
 	// POST /api/v1/snapshot.

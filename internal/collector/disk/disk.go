@@ -46,6 +46,9 @@ type Device struct {
 	BusyPercent      float64 `json:"busy_percent"`
 	// WrittenBytes is cumulative since boot; on an SD card it is the number to watch for wear.
 	WrittenBytes uint64 `json:"written_bytes"`
+	// Totals are the raw cumulative counters at this sample, for consumers
+	// that compute their own rates (Prometheus). Not part of the JSON API.
+	Totals Counters `json:"-"`
 }
 
 // Filesystem is the usage of one mounted filesystem.
@@ -202,6 +205,7 @@ func (c *Collector) Sample(now time.Time, s *Stats) error {
 				WriteOpsPerSec:   float64(sub(cur.WritesCompleted, st.prev.WritesCompleted)) / elapsed,
 				BusyPercent:      min(float64(sub(cur.IOTimeMs, st.prev.IOTimeMs))/(elapsed*1000)*100, 100),
 				WrittenBytes:     cur.SectorsWritten * sectorSize,
+				Totals:           cur,
 			})
 		}
 		st.prev = cur
