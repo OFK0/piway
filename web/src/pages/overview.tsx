@@ -408,6 +408,14 @@ function diskRows(s: Snapshot): Row[] {
 // A card with a table of rows. rows === null means loading: the header and
 // column names are real, and loadingRows rows of placeholders stand in for
 // the data.
+// Columns have fixed widths so they stay put while values change width (and
+// animate) every second: the identifier column is idWidth, and the number
+// columns share the rest equally. numWidth fits the widest value a column can
+// show, such as "1023.9 KiB/s" or "100.0%"; below that total the table scrolls
+// sideways instead of squeezing its columns.
+const idWidth = 7 // rem
+const numWidth = 7 // rem
+
 function TableCard(props: TableSpec & { rows: Row[] | null; loadingRows?: number; empty?: string }) {
   const rows: Row[] =
     props.rows ??
@@ -424,7 +432,16 @@ function TableCard(props: TableSpec & { rows: Row[] | null; loadingRows?: number
       </CardHeader>
       <CardContent>
         {rows.length > 0 ? (
-          <Table>
+          <Table
+            className="table-fixed"
+            style={{ minWidth: `${idWidth + numWidth * (props.columns.length - 1)}rem` }}
+          >
+            <colgroup>
+              <col style={{ width: `${idWidth}rem` }} />
+              {props.columns.slice(1).map((c) => (
+                <col key={c.label} />
+              ))}
+            </colgroup>
             <TableHeader>
               <TableRow>
                 {props.columns.map((c, i) => (
@@ -438,7 +455,12 @@ function TableCard(props: TableSpec & { rows: Row[] | null; loadingRows?: number
               {rows.map((r) => (
                 <TableRow key={r.key}>
                   {r.cells.map((cell, i) => (
-                    <TableCell key={i} className={i === 0 ? 'type-code' : 'text-right tabular-nums'}>
+                    <TableCell
+                      key={i}
+                      // A long name is cut with an ellipsis; the full name is in the tooltip.
+                      className={i === 0 ? 'truncate type-code' : 'text-right tabular-nums'}
+                      title={i === 0 && typeof cell === 'string' ? cell : undefined}
+                    >
                       {cell}
                     </TableCell>
                   ))}
