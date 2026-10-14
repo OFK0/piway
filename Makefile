@@ -3,10 +3,23 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/ofk0/piway/internal/version.Version=$(VERSION) \
            -X github.com/ofk0/piway/internal/version.Commit=$(COMMIT)
 
-.PHONY: build run test test-race lint fmt clean
+.PHONY: build build-go web web-lint run test test-race lint fmt clean
 
-build:
+# The dashboard is built first: #12 embeds web/dist into the binary.
+build: web build-go
+
+build-go:
 	go build -ldflags "$(LDFLAGS)" -o bin/piway ./cmd/piway
+
+# npm ci only reruns when the lockfile changes.
+web/node_modules/.package-lock.json: web/package-lock.json
+	cd web && npm ci --no-fund --no-audit
+
+web: web/node_modules/.package-lock.json
+	cd web && npm run build
+
+web-lint: web/node_modules/.package-lock.json
+	cd web && npm run lint
 
 run: build
 	./bin/piway
@@ -26,4 +39,4 @@ fmt:
 	gofmt -w .
 
 clean:
-	rm -rf bin
+	rm -rf bin web/dist
