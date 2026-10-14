@@ -17,11 +17,12 @@ type SnapshotSource interface {
 	Latest() *agent.Snapshot
 }
 
-// New returns the root HTTP handler.
-func New(snapshots SnapshotSource) http.Handler {
+// New returns the root HTTP handler. live serves the WebSocket stream.
+func New(snapshots SnapshotSource, live http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /api/v1/snapshot", snapshot(snapshots))
+	mux.Handle("GET /api/v1/stream", live)
 	return mux
 }
 

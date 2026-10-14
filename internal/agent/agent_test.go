@@ -89,6 +89,36 @@ func TestRunPublishesImmediatelyThenOnTicks(t *testing.T) {
 	waitFor(t, func() bool { s := b.Latest(); return s != nil && s.Seq >= 3 })
 }
 
+func TestOnPublishSeesEverySnapshotInOrder(t *testing.T) {
+	a, err := New(time.Millisecond, discardLogger(), memFake())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan *Snapshot, 100)
+	a.OnPublish(func(s *Snapshot) {
+		if a.Latest() != s {
+			t.Error("OnPublish called before Latest returns the snapshot")
+		}
+		got <- s
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { a.Run(ctx); close(done) }()
+
+	for want := uint64(1); want <= 3; want++ {
+		select {
+		case s := <-got:
+			if s.Seq != want {
+				t.Fatalf("seq = %d, want %d", s.Seq, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("snapshot %d not published", want)
+		}
+	}
+	cancel()
+	<-done
+}
+
 func TestFailingCollectorDoesNotStopOthers(t *testing.T) {
 	failing := &fakeCollector{name: "broken", fn: func(context.Context, int64, *Snapshot) error {
 		return errors.New("disk on fire")
