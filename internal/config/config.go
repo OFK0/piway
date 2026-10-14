@@ -29,6 +29,9 @@ type Config struct {
 	Interval    time.Duration
 	StreamQueue int
 	LogLevel    slog.Level
+	// DataDir holds the metrics history; empty disables recording.
+	DataDir       string
+	FlushInterval time.Duration
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -38,11 +41,30 @@ const MinInterval = 100 * time.Millisecond
 // Default returns the configuration used when nothing is set.
 func Default() Config {
 	return Config{
-		Addr:        ":8080",
-		Interval:    time.Second,
-		StreamQueue: 8,
-		LogLevel:    slog.LevelInfo,
+		Addr:          ":8080",
+		Interval:      time.Second,
+		StreamQueue:   8,
+		LogLevel:      slog.LevelInfo,
+		DataDir:       DefaultDataDir(),
+		FlushInterval: time.Minute,
 	}
+}
+
+// MaxFlushInterval bounds how much history a crash of the process can lose.
+const MaxFlushInterval = 10 * time.Minute
+
+// DefaultDataDir is $XDG_STATE_HOME/piway, or ~/.local/state/piway: the
+// XDG location for data an application keeps between runs but that is not
+// worth backing up like a document.
+func DefaultDataDir() string {
+	if d := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(d) {
+		return filepath.Join(d, "piway")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "state", "piway")
 }
 
 // field is one setting. The first `word` in backquotes in usage names the
@@ -111,6 +133,41 @@ var fields = []field{
 			return c.LogLevel.UnmarshalText([]byte(s))
 		},
 		get: func(c *Config) string { return strings.ToLower(c.LogLevel.String()) },
+	},
+	{
+		key:   "data_dir",
+		usage: "`directory` for the metrics history; empty disables recording",
+		set: func(c *Config, s string) error {
+			// Expand a leading ~/ as a shell would, so the path in
+			// config.example.yaml works when uncommented.
+			if rest, ok := strings.CutPrefix(s, "~/"); ok {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return err
+				}
+				s = filepath.Join(home, rest)
+			}
+			c.DataDir = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.DataDir },
+		quote: true,
+	},
+	{
+		key:   "flush_interval",
+		usage: "how long recorded samples may wait in memory before they are written, as a `duration`; 0 writes every sample",
+		set: func(c *Config, s string) error {
+			d, err := time.ParseDuration(s)
+			if err != nil {
+				return err
+			}
+			if d < 0 || d > MaxFlushInterval {
+				return fmt.Errorf("must be between 0 and %v, got %v", MaxFlushInterval, d)
+			}
+			c.FlushInterval = d
+			return nil
+		},
+		get: func(c *Config) string { return c.FlushInterval.String() },
 	},
 }
 

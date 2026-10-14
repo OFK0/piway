@@ -283,17 +283,19 @@ func loadSegment(path string, log *slog.Logger) (seg segmentInfo, ok bool, err e
 	return segmentInfo{path: path, dataEnd: int64(end), minT: minT, maxT: maxT}, true, nil
 }
 
-// readSegment calls fn for every sample of series in seg.
-func readSegment(seg segmentInfo, series string, fn func(t int64, v float64)) error {
+// readSegment calls fn for every sample of series in seg, whose bytes are
+// the file's first dataEnd bytes followed by tail (records not yet written).
+func readSegment(seg segmentInfo, tail []byte, series string, fn func(t int64, v float64)) error {
 	f, err := os.Open(seg.path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	data := make([]byte, seg.dataEnd)
-	if _, err := f.ReadAt(data, 0); err != nil {
+	data := make([]byte, seg.dataEnd, seg.dataEnd+int64(len(tail)))
+	if _, err := f.ReadAt(data, 0); err != nil && seg.dataEnd > 0 {
 		return err
 	}
+	data = append(data, tail...)
 	if err := checkHeader(data); err != nil {
 		return fmt.Errorf("%s: %w", seg.path, err)
 	}

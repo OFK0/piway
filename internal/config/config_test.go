@@ -71,12 +71,11 @@ log_level: warn
 	e := env{"PIWAY_INTERVAL": "3s", "PIWAY_STREAM_QUEUE": "16"}
 	l := load(t, []string{"-config", path, "-stream-queue", "32"}, e, "")
 
-	want := Config{
-		Addr:        ":7000",         // file
-		Interval:    3 * time.Second, // env beats file
-		StreamQueue: 32,              // flag beats env and file
-		LogLevel:    slog.LevelWarn,  // file
-	}
+	want := Default()
+	want.Addr = ":7000"             // file
+	want.Interval = 3 * time.Second // env beats file
+	want.StreamQueue = 32           // flag beats env and file
+	want.LogLevel = slog.LevelWarn  // file
 	if l.Config != want {
 		t.Errorf("config = %+v, want %+v", l.Config, want)
 	}
@@ -191,6 +190,8 @@ func TestInvalidValues(t *testing.T) {
 		{"bad log level", "log_level: loud\n", nil, nil, "log_level"},
 		{"empty addr flag", "", []string{"-addr", ""}, nil, "must not be empty"},
 		{"positional arg", "", []string{"extra"}, nil, `unexpected argument "extra"`},
+		{"negative flush", "", []string{"-flush-interval", "-1s"}, nil, "between 0 and"},
+		{"flush too long", "flush_interval: 1h\n", nil, nil, "between 0 and 10m0s"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -234,5 +235,39 @@ func TestPrintRoundTrips(t *testing.T) {
 	again := load(t, []string{"-config", writeConfig(t, out.String())}, env{}, "")
 	if again.Config != l.Config {
 		t.Errorf("round trip = %+v, want %+v", again.Config, l.Config)
+	}
+}
+
+func TestStorageSettings(t *testing.T) {
+	l := load(t, []string{"-data-dir", "/var/lib/piway", "-flush-interval", "0"}, env{}, "")
+	if l.DataDir != "/var/lib/piway" || l.FlushInterval != 0 {
+		t.Errorf("got data_dir %q flush %v", l.DataDir, l.FlushInterval)
+	}
+
+	// An empty data_dir disables recording; only a file or flag can say so,
+	// since empty environment variables count as unset.
+	path := writeConfig(t, "data_dir: \"\"\n")
+	if l := load(t, []string{"-config", path}, env{"PIWAY_DATA_DIR": ""}, ""); l.DataDir != "" {
+		t.Errorf("data_dir = %q, want empty (disabled)", l.DataDir)
+	}
+}
+
+func TestDataDirExpandsTilde(t *testing.T) {
+	t.Setenv("HOME", "/home/pi")
+	l := load(t, []string{"-data-dir", "~/metrics"}, env{}, "")
+	if l.DataDir != "/home/pi/metrics" {
+		t.Errorf("data_dir = %q, want /home/pi/metrics", l.DataDir)
+	}
+}
+
+func TestDefaultDataDir(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/tmp/state")
+	if got := DefaultDataDir(); got != "/tmp/state/piway" {
+		t.Errorf("with XDG_STATE_HOME: %q", got)
+	}
+	t.Setenv("XDG_STATE_HOME", "relative/ignored")
+	t.Setenv("HOME", "/home/pi")
+	if got := DefaultDataDir(); got != "/home/pi/.local/state/piway" {
+		t.Errorf("without XDG_STATE_HOME: %q", got)
 	}
 }

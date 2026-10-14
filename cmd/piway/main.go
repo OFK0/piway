@@ -16,8 +16,10 @@ import (
 
 	"github.com/ofk0/piway/internal/agent"
 	"github.com/ofk0/piway/internal/config"
+	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
+	"github.com/ofk0/piway/internal/tsdb"
 	"github.com/ofk0/piway/internal/version"
 	"github.com/ofk0/piway/internal/webui"
 )
@@ -75,6 +77,14 @@ func run(cfg config.Config) error {
 		hub.Broadcast(b)
 	})
 
+	store, err := openHistory(cfg, log)
+	if err != nil {
+		return err
+	}
+	if store != nil {
+		ag.OnPublish(recorder.New(store, log).Record)
+	}
+
 	agentDone := make(chan struct{})
 	go func() {
 		ag.Run(ctx)
@@ -85,10 +95,17 @@ func run(cfg config.Config) error {
 	// agent (before the deferred Close releases the collectors' files) and
 	// the Hub, which tells every WebSocket to close. Shutdown does not track
 	// hijacked connections, so wait for their close handshakes here.
+	// The store closes last: Close writes pending samples, and the agent
+	// must not record into a closed store.
 	defer func() {
 		stop()
 		<-agentDone
 		live.Wait()
+		if store != nil {
+			if err := store.Close(); err != nil {
+				log.Error("close metrics history", "err", err)
+			}
+		}
 	}()
 
 	ui := webui.FS()
@@ -121,4 +138,19 @@ func run(cfg config.Config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// openHistory opens the metrics history in cfg.DataDir, or returns nil when
+// recording is disabled (data_dir set to "").
+func openHistory(cfg config.Config, log *slog.Logger) (*tsdb.Store, error) {
+	if cfg.DataDir == "" {
+		log.Info("metrics history disabled (data_dir is empty)")
+		return nil, nil
+	}
+	store, err := tsdb.Open(cfg.DataDir, tsdb.Options{FlushInterval: cfg.FlushInterval, Logger: log})
+	if err != nil {
+		return nil, fmt.Errorf("metrics history: %w", err)
+	}
+	log.Info("recording metrics", "dir", cfg.DataDir, "flush_interval", cfg.FlushInterval)
+	return store, nil
 }

@@ -412,3 +412,127 @@ func BenchmarkSelect1h(b *testing.B) {
 		}
 	}
 }
+
+// fakeClock is a settable clock for flush decisions.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time { return c.t }
+
+func fileSize(t testing.TB, path string) int64 {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Size()
+}
+
+func activePath(s *Store) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active.path
+}
+
+func TestFlushIntervalBatchesWrites(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1000, 0)}
+	s := openStore(t, t.TempDir(), Options{FlushInterval: 30 * time.Second, now: clock.now})
+
+	mustAppend(t, s, 1000, Point{"cpu", 1})
+	path := activePath(s)
+	for i := int64(1); i < 29; i++ {
+		clock.t = clock.t.Add(time.Second)
+		mustAppend(t, s, 1000+i*1000, Point{"cpu", float64(i)})
+	}
+	if size := fileSize(t, path); size != 0 {
+		t.Fatalf("file has %d bytes before the interval elapsed, want 0", size)
+	}
+	// Pending records are already visible to readers.
+	if got := mustSelect(t, s, "cpu", 0, math.MaxInt64); len(got) != 29 {
+		t.Fatalf("Select returned %d samples before the flush, want 29", len(got))
+	}
+
+	clock.t = clock.t.Add(2 * time.Second) // 30 s since the segment started
+	mustAppend(t, s, 30_000, Point{"cpu", 30})
+	if size := fileSize(t, path); size == 0 {
+		t.Fatal("nothing written after the interval elapsed")
+	}
+	if got := mustSelect(t, s, "cpu", 0, math.MaxInt64); len(got) != 30 {
+		t.Fatalf("Select returned %d samples after the flush, want 30", len(got))
+	}
+}
+
+func TestMaxPendingFlushesEarly(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1000, 0)}
+	s := openStore(t, t.TempDir(), Options{FlushInterval: time.Hour, MaxPending: 200, now: clock.now})
+	mustAppend(t, s, 1, Point{"cpu", 1})
+	path := activePath(s)
+	for i := int64(2); fileSize(t, path) == 0; i++ {
+		if i > 50 {
+			t.Fatal("MaxPending never triggered a flush")
+		}
+		mustAppend(t, s, i, Point{"cpu", float64(i)})
+	}
+}
+
+func TestPendingSurvivesCloseAndRotation(t *testing.T) {
+	dir := t.TempDir()
+	clock := &fakeClock{t: time.Unix(1000, 0)}
+	opts := Options{FlushInterval: time.Hour, SegmentSpan: 10 * time.Second, now: clock.now}
+	s, err := Open(dir, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 25 s of samples: rotation at 10 s and 20 s must write what is pending.
+	for i := int64(0); i < 25; i++ {
+		mustAppend(t, s, i*1000, Point{"cpu", float64(i)})
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s = openStore(t, dir, opts)
+	got := mustSelect(t, s, "cpu", 0, math.MaxInt64)
+	if len(got) != 25 {
+		t.Fatalf("after reopen: %d samples, want 25", len(got))
+	}
+	for i, smp := range got {
+		if smp.T != int64(i)*1000 || smp.V != float64(i) {
+			t.Fatalf("sample %d = %+v", i, smp)
+		}
+	}
+}
+
+func TestFlushWritesNow(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1000, 0)}
+	s := openStore(t, t.TempDir(), Options{FlushInterval: time.Hour, now: clock.now})
+	mustAppend(t, s, 1, Point{"cpu", 1})
+	path := activePath(s)
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if fileSize(t, path) == 0 {
+		t.Fatal("Flush wrote nothing")
+	}
+}
+
+func TestCrashLosesAtMostTheInterval(t *testing.T) {
+	dir := t.TempDir()
+	clock := &fakeClock{t: time.Unix(1000, 0)}
+	opts := Options{FlushInterval: 10 * time.Second, now: clock.now}
+	s, err := Open(dir, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := int64(0); i < 25; i++ {
+		mustAppend(t, s, i*1000, Point{"cpu", float64(i)})
+		clock.t = clock.t.Add(time.Second)
+	}
+	crash(s) // the process dies; pending records are gone
+
+	s = openStore(t, dir, opts)
+	got := mustSelect(t, s, "cpu", 0, math.MaxInt64)
+	// Flushes happened at samples 10 and 20, so 0..20 are on disk.
+	if len(got) != 21 {
+		t.Fatalf("recovered %d samples, want 21 (lost at most one interval)", len(got))
+	}
+}
