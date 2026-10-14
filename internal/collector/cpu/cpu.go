@@ -9,8 +9,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
-	"os"
+
+	"github.com/ofk0/piway/internal/procfs"
 )
 
 // DefaultPath is where Linux exposes CPU time counters.
@@ -152,40 +152,36 @@ func sub(a, b uint64) uint64 {
 }
 
 // Collector samples /proc/stat and reports usage since its previous sample.
-//
-// The file is kept open and re-read from offset 0 each time; procfs regenerates
-// the content on every read from the start, which avoids an open/close per sample.
 // A Collector is not safe for concurrent use.
 type Collector struct {
-	f         *os.File
-	buf       []byte
+	file      *procfs.File
 	prev, cur Stat
 	primed    bool
 }
 
 // New opens path (normally DefaultPath) for sampling.
 func New(path string) (*Collector, error) {
-	f, err := os.Open(path)
+	f, err := procfs.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("cpu: %w", err)
 	}
-	return &Collector{f: f, buf: make([]byte, 0, 4096)}, nil
+	return &Collector{file: f}, nil
 }
 
 // Close releases the underlying file.
 func (c *Collector) Close() error {
-	return c.f.Close()
+	return c.file.Close()
 }
 
 // Sample reads the current counters and writes usage since the previous call
 // into u, reusing u.PerCore. It returns false when there is no usable previous
 // sample yet: on the first call, and when the number of cores changed.
 func (c *Collector) Sample(u *Usage) (bool, error) {
-	var err error
-	if c.buf, err = readAllAt(c.f, c.buf); err != nil {
+	data, err := c.file.Read()
+	if err != nil {
 		return false, fmt.Errorf("cpu: read: %w", err)
 	}
-	if err := Parse(c.buf, &c.cur); err != nil {
+	if err := Parse(data, &c.cur); err != nil {
 		return false, err
 	}
 
@@ -202,22 +198,4 @@ func (c *Collector) Sample(u *Usage) (bool, error) {
 	c.prev, c.cur = c.cur, c.prev
 	c.primed = true
 	return ok, nil
-}
-
-// readAllAt reads f from offset 0 into buf[:0], growing buf only when needed.
-func readAllAt(f *os.File, buf []byte) ([]byte, error) {
-	buf = buf[:0]
-	for {
-		if len(buf) == cap(buf) {
-			buf = append(buf, 0)[:len(buf)]
-		}
-		n, err := f.ReadAt(buf[len(buf):cap(buf)], int64(len(buf)))
-		buf = buf[:len(buf)+n]
-		if errors.Is(err, io.EOF) {
-			return buf, nil
-		}
-		if err != nil {
-			return buf, err
-		}
-	}
 }

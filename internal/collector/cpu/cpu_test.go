@@ -4,7 +4,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -151,27 +150,6 @@ func TestCollectorSample(t *testing.T) {
 	writeStat(t, path, "cpu 200 0 0 100\ncpu0 200 0 0 0\n")
 	if ok, err := c.Sample(&u); err != nil || ok {
 		t.Fatalf("Sample after core count change = (%v, %v), want (false, nil)", ok, err)
-	}
-}
-
-func TestCollectorSampleLargeFile(t *testing.T) {
-	// Larger than the initial 4 KiB buffer, like /proc/stat on many-core machines.
-	path := filepath.Join(t.TempDir(), "stat")
-	content := "cpu 1 0 0 1\ncpu0 1 0 0 1\nintr " + strings.Repeat("0 ", 5000) + "\n"
-	writeStat(t, path, content)
-
-	c, err := New(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	var u Usage
-	if _, err := c.Sample(&u); err != nil {
-		t.Fatal(err)
-	}
-	if len(c.buf) != len(content) {
-		t.Errorf("read %d bytes, want %d", len(c.buf), len(content))
 	}
 }
 
