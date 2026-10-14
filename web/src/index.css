@@ -1,131 +1,266 @@
-:root {
-  --bg: #f7f7f8;
-  --surface: #ffffff;
-  --text: #1c1c1f;
-  --muted: #6b6b75;
-  --border: #e2e2e6;
-  --accent: #2f6fde;
-  --error: #c62828;
+/* piway design tokens. DESIGN.md is the spec; this file implements it. */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 
-  color-scheme: light dark;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  line-height: 1.5;
+@custom-variant dark (&:is(.dark *));
+
+/* The design system page pins interaction states with data-preview="hover focus active". */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+  &[data-preview~="hover"] {
+    @slot;
+  }
+}
+@custom-variant focus-visible (&:focus-visible, &[data-preview~="focus"]);
+@custom-variant active (&:active, &[data-preview~="active"]);
+
+@theme inline {
+  --font-sans: "IBM Plex Sans Variable", "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* piway additions (DESIGN.md › Color). */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-text: var(--brand-text);
+
+  /* Sharp: 0 radius on every step (DESIGN.md › Shape). */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131316;
-    --surface: #1d1d21;
-    --text: #e8e8ec;
-    --muted: #9a9aa5;
-    --border: #2e2e34;
-    --accent: #6b9cf0;
-    --error: #ef6b6b;
+/* Flat: hairlines instead of shadows; one shadow for floating layers. */
+@theme {
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.12);
+  --shadow-lg: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+
+:root {
+  --radius: 0px;
+
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #000000;
+  --muted: #f5f5f5;
+  --muted-foreground: #666666;
+  --accent: #ededed;
+  --accent-foreground: #000000;
+  --destructive: #cd2355;
+  --border: #e5e5e5;
+  --input: #8a8a8a;
+  --ring: #cd2355;
+
+  --brand: #cd2355;
+  --brand-foreground: #ffffff;
+  --brand-text: #cd2355;
+
+  /* DESIGN.md › Data visualization. 1–2 are series, 3–5 are neutrals for guides. */
+  --chart-1: #cd2355;
+  --chart-2: #262626;
+  --chart-3: #8a8a8a;
+  --chart-4: #c4c4c4;
+  --chart-5: #e5e5e5;
+
+  --sidebar: #fafafa;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #000000;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ededed;
+  --sidebar-accent-foreground: #000000;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #cd2355;
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #0f0f0f;
+  --card-foreground: #ffffff;
+  --popover: #0f0f0f;
+  --popover-foreground: #ffffff;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --secondary: #171717;
+  --secondary-foreground: #ffffff;
+  --muted: #171717;
+  --muted-foreground: #a3a3a3;
+  --accent: #212121;
+  --accent-foreground: #ffffff;
+  --destructive: #e5476f;
+  --border: #262626;
+  --input: #6b6b6b;
+  --ring: #e5476f;
+
+  --brand: #cd2355;
+  --brand-foreground: #ffffff;
+  --brand-text: #e5476f;
+
+  --chart-1: #e5476f;
+  --chart-2: #d4d4d4;
+  --chart-3: #6b6b6b;
+  --chart-4: #404040;
+  --chart-5: #262626;
+
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #212121;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #262626;
+  --sidebar-ring: #e5476f;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  html {
+    @apply font-sans;
+    /* Keep focused elements clear of the sticky header. */
+    scroll-padding-top: 4.5rem;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground type-body;
+  }
+  ::selection {
+    @apply bg-brand text-brand-foreground;
   }
 }
 
-* {
-  box-sizing: border-box;
+/*
+ * Focus (DESIGN.md › States): a 2px outline with offset on every action.
+ * Unlayered so it beats the components' outline-none; the ring shadow is
+ * cancelled so there is one indicator, not two. Fields keep their own
+ * border + ring treatment.
+ */
+:is(
+    button,
+    a[href],
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [role="slider"]
+  ):is(:focus-visible, [data-preview~="focus"]) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  --tw-ring-shadow: 0 0 #0000;
 }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
-main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 24px 16px;
-}
-
-header {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-header button {
-  margin-left: auto;
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-h2 {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
+/* Type scale (DESIGN.md › Typography). type-* rather than text-* so cn()
+   does not confuse sizes with colors. */
+@utility type-display {
+  text-wrap: balance;
+  font-size: clamp(28px, 2vw + 20px, 36px);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
-
-section {
-  margin-top: 24px;
-}
-
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.value {
-  font-size: 1.75rem;
-  font-weight: 600;
+@utility type-metric {
+  font-size: clamp(24px, 1.5vw + 18px, 32px);
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
-
-.muted {
-  color: var(--muted);
-  font-size: 0.875rem;
+@utility type-title {
+  text-wrap: balance;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
-
-.error {
-  color: var(--error);
+@utility type-body {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
 }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-variant-numeric: tabular-nums;
+@utility type-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
 }
-
-th,
-td {
-  padding: 8px 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
+@utility type-caption {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
 }
-
-tbody tr:last-child td {
-  border-bottom: none;
-}
-
-button {
-  font: inherit;
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: var(--accent);
+@utility type-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
 }
