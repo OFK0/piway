@@ -168,6 +168,20 @@ nothing gives `"series": []`.
 | `400` | Missing `name`, unparsable `from`/`to`/`step`, or `to` not after `from`. |
 | `503` | Recording is disabled (`data_dir` is empty). |
 
+## `POST /api/v1/webhooks/github`
+
+Receives GitHub webhook deliveries; see [DEPLOY.md](DEPLOY.md) for setup and
+the checks applied. Responses are JSON `{"status": …, "reason": …}`:
+
+| Status | `status` | Meaning |
+| ------ | -------- | ------- |
+| `202` | `queued` | A push to a configured branch; a deploy was requested. |
+| `200` | `pong`, `ignored`, `duplicate` | Ping, a push or event that does not deploy, or a delivery already handled. |
+| `400` | `rejected` | Unreadable payload. |
+| `401` | `rejected` | Missing or invalid signature. |
+| `413` | `rejected` | Body over 5 MiB. |
+| `503` | `disabled`, `error` | No `webhook_secret` set, or the deploy could not be queued. |
+
 ## `GET /api/v1/stream` (WebSocket)
 
 A one-way live stream of snapshots. Each text message is exactly the body of

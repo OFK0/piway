@@ -35,6 +35,8 @@ The output is itself a valid config file.
 | `retention_raw` | `PIWAY_RETENTION_RAW` | `-retention-raw` | `24h` | How long every sample is kept. Durations also accept days (`7d`); at least `1h`. |
 | `retention_1m` | `PIWAY_RETENTION_1M` | `-retention-1m` | `7d` | How long per-minute rollups are kept. |
 | `retention_1h` | `PIWAY_RETENTION_1H` | `-retention-1h` | `365d` | How long per-hour rollups are kept. |
+| `webhook_secret` | `PIWAY_WEBHOOK_SECRET` | `-webhook-secret` | empty | Secret shared with GitHub for webhook signatures, at least 16 characters. Empty disables webhooks. Never shown by `-print-config`. See [DEPLOY.md](DEPLOY.md). |
+| `apps_file` | `PIWAY_APPS_FILE` | `-apps-file` | `~/.config/piway/apps.yaml` | Repositories and branches that deploy on push. |
 
 The pattern is the same for every setting: the env var is `PIWAY_` plus the
 key in upper case, and the flag is the key with `_` replaced by `-`.

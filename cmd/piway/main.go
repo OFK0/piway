@@ -21,6 +21,7 @@ import (
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
 	"github.com/ofk0/piway/internal/version"
+	"github.com/ofk0/piway/internal/webhook"
 	"github.com/ofk0/piway/internal/webui"
 )
 
@@ -123,7 +124,11 @@ func run(cfg config.Config) error {
 	if hist != nil {
 		queries = hist
 	}
-	handler, err := server.New(ag, live, queries, ui)
+	hooks, err := openWebhooks(cfg, log)
+	if err != nil {
+		return err
+	}
+	handler, err := server.New(ag, live, queries, hooks, ui)
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
 	}
@@ -172,4 +177,31 @@ func openHistory(cfg config.Config, log *slog.Logger) (*history.History, error) 
 	}
 	log.Info("recording metrics", "dir", cfg.DataDir, "flush_interval", cfg.FlushInterval)
 	return h, nil
+}
+
+// openWebhooks builds the GitHub webhook handler from webhook_secret and
+// the deploy targets in apps_file.
+func openWebhooks(cfg config.Config, log *slog.Logger) (http.Handler, error) {
+	targets, err := webhook.LoadTargets(cfg.AppsFile)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case cfg.WebhookSecret == "":
+		log.Info("GitHub webhooks disabled (webhook_secret is empty)")
+	case len(targets) == 0:
+		log.Warn("GitHub webhooks enabled, but no deploy targets", "apps_file", cfg.AppsFile)
+	default:
+		log.Info("GitHub webhooks enabled", "targets", len(targets))
+	}
+	return webhook.New(cfg.WebhookSecret, targets, logDeployer{log}, log), nil
+}
+
+// logDeployer records deploy requests until the build pipeline (#23)
+// takes them.
+type logDeployer struct{ log *slog.Logger }
+
+func (d logDeployer) Deploy(r webhook.Request) error {
+	d.log.Info("deploy requested (no build pipeline yet)", "repo", r.Repo, "branch", r.Branch, "commit", r.Commit)
+	return nil
 }

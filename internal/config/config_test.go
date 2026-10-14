@@ -290,3 +290,22 @@ func TestRetentionSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestWebhookSecretIsNeverPrinted(t *testing.T) {
+	const secret = "s3cr3t-value-0123456789"
+	l := load(t, nil, env{"PIWAY_WEBHOOK_SECRET": secret}, "")
+	if l.WebhookSecret != secret {
+		t.Fatalf("secret = %q", l.WebhookSecret)
+	}
+	var out strings.Builder
+	l.Print(&out)
+	if strings.Contains(out.String(), secret) {
+		t.Errorf("-print-config leaked the secret:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "# webhook_secret: (set, hidden)  # env PIWAY_WEBHOOK_SECRET") {
+		t.Errorf("print does not say the secret is set:\n%s", out.String())
+	}
+	if _, err := Load([]string{"-webhook-secret", "short"}, env{}.lookup, "", io.Discard); err == nil {
+		t.Error("a short webhook secret was accepted")
+	}
+}
