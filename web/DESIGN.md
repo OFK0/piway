@@ -173,6 +173,7 @@ align in a row.
 | Hover | Fills shift one step (`primary` → 85% opacity; ghost/outline get `accent`). |
 | Focus | 2px `ring` outline, 2px offset, on every interactive element. Fields also switch their border to `ring`. |
 | Active | 1px press (`translate-y-px`). |
+| Cursor | `pointer` on everything clickable: buttons, links, tabs, menu and select items, switches. Set globally in `index.css`. |
 | Disabled | 50% opacity, `cursor: not-allowed`, no hover. |
 | Invalid | `destructive` border plus an error message under the field. |
 | Loading | `Spinner` before the label, control disabled, label unchanged. |

@@ -8,12 +8,21 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import '@/index.css'
 
+const iconDefaults = {
+  color: 'currentColor',
+  size: '1em',
+  weight: 'regular',
+  mirrored: false,
+  'aria-hidden': true,
+} as const
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      {/* Icons sit next to text that already says what they mean. Icon-only
-          buttons carry their own aria-label. */}
-      <IconContext.Provider value={{ 'aria-hidden': true }}>
+      {/* Icons sit next to text that already says what they mean; icon-only
+          buttons carry their own aria-label. The value replaces Phosphor's
+          default context, so it must repeat the defaults (size above all). */}
+      <IconContext.Provider value={iconDefaults}>
         <TooltipProvider>
           <App />
           <Toaster />
