@@ -62,3 +62,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the issue, branch, commit
 ## Roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the GitHub milestones.
+
+## License
+
+piway is released under the [MIT license](LICENSE). The binary also contains
+third-party code and fonts under their own licenses; `make build` collects
+them into `THIRD_PARTY_NOTICES.txt`, which ships with every release and is
+served by the dashboard (footer › Licenses).

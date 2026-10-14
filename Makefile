@@ -3,17 +3,32 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/ofk0/piway/internal/version.Version=$(VERSION) \
            -X github.com/ofk0/piway/internal/version.Commit=$(COMMIT)
 
-.PHONY: build build-go dist web web-lint web-test run test test-race lint fmt clean
+.PHONY: build build-go dist notices web web-lint web-test run test test-race lint fmt clean
 
 # build: the dashboard first, then a binary that embeds it (internal/webui).
 # build-go: the binary alone, serving the API only (no Node needed).
 GOTAGS ?=
 
-build: web
+build: notices
 	$(MAKE) build-go GOTAGS=embedui
 
 build-go:
 	go build -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/piway ./cmd/piway
+
+# notices: THIRD_PARTY_NOTICES.txt, the licenses of everything the binary
+# contains (Go standard library and modules, then the dashboard's npm
+# packages and fonts). It is embedded with the dashboard and served at
+# /THIRD_PARTY_NOTICES.txt, and it ships in the release archive.
+WEBUI_DIST := internal/webui/dist
+NOTICES    := $(WEBUI_DIST)/THIRD_PARTY_NOTICES.txt
+
+notices: web
+	{ echo "piway includes third-party software under the licenses below."; \
+	  echo "piway itself is licensed under the MIT license (LICENSE)."; echo; \
+	  scripts/go-notices.sh; echo; \
+	  cat $(WEBUI_DIST)/THIRD_PARTY_NOTICES.web.txt; } > $(NOTICES).tmp
+	rm $(WEBUI_DIST)/THIRD_PARTY_NOTICES.web.txt
+	mv $(NOTICES).tmp $(NOTICES)
 
 # dist: the release archive for the Pi, plus its checksum (docs/RELEASING.md).
 # The archive is reproducible: the same commit always gives the same bytes,
@@ -24,11 +39,11 @@ DIST       := dist
 DIST_NAME  := piway_linux_arm64
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 
-dist: web
+dist: notices
 	rm -rf $(DIST) && mkdir -p $(DIST)/$(DIST_NAME)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -tags embedui \
 		-ldflags "$(LDFLAGS)" -o $(DIST)/$(DIST_NAME)/piway ./cmd/piway
-	cp README.md deploy/systemd/piway.service deploy/config.example.yaml $(DIST)/$(DIST_NAME)/
+	cp LICENSE $(NOTICES) README.md deploy/systemd/piway.service deploy/config.example.yaml $(DIST)/$(DIST_NAME)/
 	tar --sort=name --mtime=@$(SOURCE_DATE_EPOCH) --owner=0 --group=0 --numeric-owner --mode=go-w \
 		-C $(DIST) -cf - $(DIST_NAME) | gzip -9n > $(DIST)/$(DIST_NAME).tar.gz
 	rm -rf $(DIST)/$(DIST_NAME)
