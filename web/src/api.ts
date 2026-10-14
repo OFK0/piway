@@ -1,0 +1,95 @@
+// Types and calls for piway's HTTP API. The schema is documented in
+// docs/API.md; keep the two in sync. Every metric may be null (collector
+// unavailable, failed this round, or no baseline yet).
+
+export interface CPU {
+  total: number
+  per_core: number[]
+}
+
+export interface Memory {
+  total_bytes: number
+  free_bytes: number
+  available_bytes: number
+  used_bytes: number
+  buffers_bytes: number
+  cached_bytes: number
+  swap_total_bytes: number
+  swap_free_bytes: number
+  swap_used_bytes: number
+}
+
+export interface ThrottleState {
+  under_voltage: boolean
+  freq_capped: boolean
+  throttled: boolean
+  soft_temp_limit: boolean
+}
+
+export interface Thermal {
+  temp_celsius: number | null
+  throttle: {
+    raw: number
+    now: ThrottleState
+    since_boot: ThrottleState
+  } | null
+}
+
+export interface DiskDevice {
+  name: string
+  read_bytes_per_sec: number
+  write_bytes_per_sec: number
+  read_ops_per_sec: number
+  write_ops_per_sec: number
+  busy_percent: number
+  written_bytes: number
+}
+
+export interface Filesystem {
+  path: string
+  total_bytes: number
+  used_bytes: number
+  avail_bytes: number
+  used_percent: number
+}
+
+export interface NetInterface {
+  name: string
+  rx_bytes_per_sec: number
+  tx_bytes_per_sec: number
+  rx_packets_per_sec: number
+  tx_packets_per_sec: number
+  rx_errors: number
+  tx_errors: number
+  rx_dropped: number
+  tx_dropped: number
+}
+
+export interface Snapshot {
+  seq: number
+  time: string
+  cpu: CPU | null
+  memory: Memory | null
+  thermal: Thermal | null
+  disk: { devices: DiskDevice[] | null; filesystems: Filesystem[] } | null
+  network: NetInterface[] | null
+  errors?: Record<string, string>
+}
+
+export interface Health {
+  status: string
+  version: string
+  commit: string
+}
+
+async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { signal })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
+  }
+  return res.json() as Promise<T>
+}
+
+export const fetchSnapshot = (signal?: AbortSignal) => getJSON<Snapshot>('/api/v1/snapshot', signal)
+export const fetchHealth = (signal?: AbortSignal) => getJSON<Health>('/healthz', signal)
