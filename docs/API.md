@@ -151,3 +151,26 @@ ws.onmessage = (e) => render(JSON.parse(e.data));
 | ---- | ------ | ------- | ------------- |
 | `1001` Going Away | `server shutting down` | piway is stopping or restarting. | Reconnect with backoff. |
 | `1013` Try Again Later | `too slow` | The client fell 8 snapshots behind (slow network or a stalled tab) and was dropped so it could not hold back other clients. | Reconnect with backoff. |
+
+## Dashboard
+
+piway serves the dashboard (`web/`) from the binary when it was built with
+`make build` (Go build tag `embedui`). Any path not listed above serves it:
+
+| Path | Response | `Cache-Control` |
+| ---- | -------- | --------------- |
+| `/assets/*` | The file. Names contain a content hash, so a new build gets new URLs. | `public, max-age=31536000, immutable` |
+| Other existing files (`/favicon.svg`) | The file. | `no-cache` |
+| Any other path without an extension (`/`, `/design-system`) | `index.html`, so the client-side router can render the route. | `no-cache` |
+| A missing path with an extension (`/assets/old.js`) | `404`, never `index.html`. | |
+| An unknown path under `/api/` | `404` with the JSON error body. | |
+
+- Every file has a strong `ETag`. `no-cache` files are revalidated with
+  `If-None-Match` and usually answered with `304 Not Modified`.
+- Text files (`.js`, `.css`, `.html`, `.svg`) are gzip-compressed once at
+  startup and sent compressed to clients that accept it, with
+  `Vary: Accept-Encoding` and a separate `ETag`.
+- All dashboard responses carry `X-Content-Type-Options: nosniff`.
+- A binary built without the dashboard (`make build-go`, `go run`) answers
+  these paths with a short `404` page that explains how to build it. The API
+  works either way.

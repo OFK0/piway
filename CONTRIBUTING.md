@@ -67,7 +67,7 @@ changes that span the whole repository.
 | `server` | `internal/server` |
 | `stream` | `internal/stream` |
 | `config` | `internal/config` |
-| `web` | `web/` (dashboard) |
+| `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |
 | `api` | `docs/API.md` and API compatibility |

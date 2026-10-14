@@ -15,6 +15,12 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
+  // The Go binary embeds this directory (internal/webui, -tags embedui).
+  // It lives outside web/ because go:embed cannot reach parent directories.
+  build: {
+    outDir: path.resolve(import.meta.dirname, '../internal/webui/dist'),
+    emptyOutDir: true,
+  },
   server: {
     proxy: {
       '/api': { target: api, ws: true },

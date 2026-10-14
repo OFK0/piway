@@ -19,6 +19,7 @@ import (
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
 	"github.com/ofk0/piway/internal/version"
+	"github.com/ofk0/piway/internal/webui"
 )
 
 func main() {
@@ -90,15 +91,20 @@ func run(cfg config.Config) error {
 		live.Wait()
 	}()
 
+	ui := webui.FS()
+	handler, err := server.New(ag, live, ui)
+	if err != nil {
+		return fmt.Errorf("dashboard: %w", err)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           server.New(ag, live),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("piway listening", "addr", cfg.Addr, "version", version.Version)
+		slog.Info("piway listening", "addr", cfg.Addr, "version", version.Version, "dashboard", ui != nil)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

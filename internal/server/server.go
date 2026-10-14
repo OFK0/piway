@@ -3,6 +3,7 @@ package server
 
 import (
 	"encoding/json"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -17,13 +18,28 @@ type SnapshotSource interface {
 	Latest() *agent.Snapshot
 }
 
-// New returns the root HTTP handler. live serves the WebSocket stream.
-func New(snapshots SnapshotSource, live http.Handler) http.Handler {
+// New returns the root HTTP handler. live serves the WebSocket stream and
+// ui holds the built dashboard (nil if this binary has none).
+func New(snapshots SnapshotSource, live http.Handler, ui fs.FS) (http.Handler, error) {
+	dashboard, err := uiHandler(ui)
+	if err != nil {
+		return nil, err
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /api/v1/snapshot", snapshot(snapshots))
 	mux.Handle("GET /api/v1/stream", live)
-	return mux
+	// Unknown API paths get a JSON 404, never the dashboard's index.html.
+	// Method-specific patterns keep the mux's automatic 405 for, say,
+	// POST /api/v1/snapshot.
+	mux.HandleFunc("GET /api/", apiNotFound)
+	mux.Handle("GET /", dashboard)
+	return mux, nil
+}
+
+func apiNotFound(w http.ResponseWriter, _ *http.Request) {
+	writeError(w, http.StatusNotFound, "no such endpoint")
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {
