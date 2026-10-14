@@ -13,3 +13,10 @@
 
 # debug, info, warn or error.
 # log_level: info
+
+# Where the metrics history is stored. "" disables recording.
+# data_dir: "~/.local/state/piway"
+
+# How long samples may wait in memory before they are written to the SD
+# card. Longer = fewer writes; a crash loses up to this much history.
+# flush_interval: 1m

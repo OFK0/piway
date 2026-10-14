@@ -33,6 +33,16 @@
 // Appends are not fsynced: after kill -9 the kernel still writes them out,
 // but a power cut can lose the active segment's recent records. The SD card
 // sees one fsync per sealed segment instead of one per sample.
+//
+// # Write batching
+//
+// With Options.FlushInterval set, appended records are kept in memory and
+// written to the file at most once per interval (or when MaxPending bytes
+// are waiting). Every write that grows a file also dirties its inode, and
+// on ext4 that costs a journal commit; batching turns one commit per
+// sample into one per interval (docs/STORAGE.md has the measurements).
+// Pending records are visible to Select. The price is durability: a crash
+// of the process, not just of the machine, loses up to one interval.
 package tsdb
 
 import (
@@ -69,6 +79,16 @@ type Options struct {
 	// Logger receives warnings about data dropped while recovering from a
 	// crash. Default: discard.
 	Logger *slog.Logger
+	// FlushInterval is how long appended records may wait in memory before
+	// they are written to the segment file. Zero writes every Append
+	// immediately. See "Write batching" above.
+	FlushInterval time.Duration
+	// MaxPending flushes early once this many bytes are waiting, bounding
+	// memory. Default 1 MiB.
+	MaxPending int
+
+	// now is the clock for flush decisions; tests replace it.
+	now func() time.Time
 }
 
 // Point is one value of one series.
@@ -99,12 +119,18 @@ type Store struct {
 }
 
 // activeSegment is the segment being appended to. It exists only once its
-// first record has been written, so dataEnd > 0 and minT/maxT are valid.
+// first record has been appended, so minT/maxT are valid. Its bytes are the
+// file's first dataEnd bytes followed by pending, which is not written yet.
 type activeSegment struct {
 	segmentInfo
-	f   *os.File
-	ids map[string]uint64
+	f         *os.File
+	ids       map[string]uint64
+	pending   []byte
+	lastFlush time.Time
 }
+
+// size is the segment's length once pending bytes are written.
+func (a *activeSegment) size() int64 { return a.dataEnd + int64(len(a.pending)) }
 
 // Open opens the store in dir, creating the directory if needed, and
 // recovers any segment left unsealed by a crash. Appends after Open go to a
@@ -118,6 +144,12 @@ func Open(dir string, opts Options) (*Store, error) {
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
+	}
+	if opts.MaxPending <= 0 {
+		opts.MaxPending = 1 << 20
+	}
+	if opts.now == nil {
+		opts.now = time.Now
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("tsdb: %w", err)
@@ -207,7 +239,7 @@ func (s *Store) Append(t int64, points []Point) error {
 // full reports whether a sample at t must go to a new segment.
 func (s *Store) full(t int64) bool {
 	a := s.active
-	return a.dataEnd >= s.opts.SegmentBytes ||
+	return a.size() >= s.opts.SegmentBytes ||
 		max(a.maxT, t)-min(a.minT, t) >= s.opts.SegmentSpan.Milliseconds()
 }
 
@@ -218,19 +250,25 @@ func (s *Store) create() error {
 		return fmt.Errorf("tsdb: %w", err)
 	}
 	s.nextSeq++
-	s.active = &activeSegment{segmentInfo: segmentInfo{path: path}, f: f, ids: make(map[string]uint64)}
+	s.active = &activeSegment{
+		segmentInfo: segmentInfo{path: path},
+		f:           f,
+		ids:         make(map[string]uint64),
+		lastFlush:   s.opts.now(),
+	}
 	return nil
 }
 
 func (s *Store) write(t int64, points []Point) error {
 	a := s.active
-	b := s.buf[:0]
-	if a.dataEnd == 0 {
+	empty := a.size() == 0
+	b := a.pending
+	if empty {
 		b = appendHeader(b)
 	}
 
-	// New ids are assigned before the write; if it fails, the segment is
-	// abandoned along with them.
+	// New ids are assigned before the bytes reach the file; if writing them
+	// fails, the segment is abandoned along with them.
 	var added []string
 	for _, p := range points {
 		if _, ok := a.ids[p.Series]; !ok {
@@ -259,24 +297,54 @@ func (s *Store) write(t int64, points []Point) error {
 		b = binary.LittleEndian.AppendUint64(b, math.Float64bits(p.Value))
 	}
 	b = endFrame(b, start)
-	s.buf = b
+	a.pending = b
 
-	if _, err := a.f.Write(b); err != nil {
+	if empty {
+		a.minT, a.maxT = t, t
+	}
+	a.minT, a.maxT = min(a.minT, t), max(a.maxT, t)
+
+	if s.opts.FlushInterval <= 0 || len(a.pending) >= s.opts.MaxPending ||
+		s.opts.now().Sub(a.lastFlush) >= s.opts.FlushInterval {
+		return s.flush()
+	}
+	return nil
+}
+
+// flush writes the active segment's pending records to its file in one
+// write call. On failure the segment is abandoned, losing them.
+func (s *Store) flush() error {
+	a := s.active
+	if a == nil || len(a.pending) == 0 {
+		return nil
+	}
+	if _, err := a.f.Write(a.pending); err != nil {
 		s.abandon()
 		return fmt.Errorf("tsdb: %w", err)
 	}
-	if a.dataEnd == 0 {
-		a.minT, a.maxT = t, t
-	}
-	a.dataEnd += int64(len(b))
-	a.minT, a.maxT = min(a.minT, t), max(a.maxT, t)
+	a.dataEnd += int64(len(a.pending))
+	a.pending = a.pending[:0]
+	a.lastFlush = s.opts.now()
 	return nil
+}
+
+// Flush writes any pending records to the active segment's file now.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosed
+	}
+	return s.flush()
 }
 
 // seal writes the active segment's trailer and fsyncs it. Even if that
 // fails, the segment stops being active: readers still see its records up
 // to dataEnd, and the next Open repairs it.
 func (s *Store) seal() error {
+	if err := s.flush(); err != nil {
+		return err // flush abandoned the segment
+	}
 	a := s.active
 	s.active = nil
 	s.segments = append(s.segments, a.segmentInfo)
@@ -300,6 +368,7 @@ func (s *Store) seal() error {
 func (s *Store) abandon() {
 	a := s.active
 	s.active = nil
+	a.pending = nil
 	if a.dataEnd == 0 {
 		a.f.Close()
 		os.Remove(a.path)
@@ -319,17 +388,23 @@ func (s *Store) Select(series string, mint, maxt int64) ([]Sample, error) {
 		return nil, ErrClosed
 	}
 	segs := slices.Clone(s.segments)
+	var tail []byte // the active segment's records not yet in its file
 	if s.active != nil {
 		segs = append(segs, s.active.segmentInfo)
+		tail = slices.Clone(s.active.pending)
 	}
 	s.mu.Unlock()
 
 	var out []Sample
-	for _, seg := range segs {
+	for i, seg := range segs {
 		if seg.maxT < mint || seg.minT > maxt {
 			continue
 		}
-		err := readSegment(seg, series, func(t int64, v float64) {
+		var extra []byte
+		if i == len(segs)-1 {
+			extra = tail
+		}
+		err := readSegment(seg, extra, series, func(t int64, v float64) {
 			if t >= mint && t <= maxt {
 				out = append(out, Sample{T: t, V: v})
 			}
