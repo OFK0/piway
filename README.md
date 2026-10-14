@@ -23,6 +23,11 @@ cp deploy/systemd/piway.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now piway
 ```
 
+To change settings, copy `deploy/config.example.yaml` to
+`~/.config/piway/config.yaml`, edit it, and restart the service. See
+[docs/CONFIG.md](docs/CONFIG.md) for the full list, the `PIWAY_*` environment
+variables, and the precedence rules.
+
 ## Roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the GitHub milestones.

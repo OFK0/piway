@@ -1,0 +1,15 @@
+# piway configuration. Copy to ~/.config/piway/config.yaml and uncomment what
+# you want to change; every value shown is the default. See docs/CONFIG.md.
+
+# HTTP listen address. Use "127.0.0.1:8080" to accept local connections only.
+# addr: ":8080"
+
+# How often metrics are collected. Minimum 100ms.
+# interval: 1s
+
+# How many snapshots a WebSocket client may fall behind before it is
+# disconnected (8 snapshots = 8 seconds at the default interval).
+# stream_queue: 8
+
+# debug, info, warn or error.
+# log_level: info
