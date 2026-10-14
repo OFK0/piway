@@ -77,7 +77,7 @@ jobs:
           tar -xzf piway_linux_arm64.tar.gz
           # Licenses travel with the binary (MIT for piway, notices for the rest).
           grep -q "MIT License" piway_linux_arm64/LICENSE
-          grep -q "IBM Plex" piway_linux_arm64/THIRD_PARTY_NOTICES.txt
+          grep -q "SIL Open Font License" piway_linux_arm64/THIRD_PARTY_NOTICES.txt
 
           got=$(./piway_linux_arm64/piway -version)
           # PR runs check out a merge commit; the build stamps that commit.
