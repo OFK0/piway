@@ -7,9 +7,9 @@ import (
 	"os"
 )
 
-// File is a procfs file kept open between reads.
+// File is a procfs or sysfs file kept open between reads.
 //
-// procfs regenerates a file's content whenever it is read from offset 0, so
+// Both filesystems regenerate a file's content whenever it is read from offset 0, so
 // re-reading the same descriptor returns fresh data without an open/close per
 // sample. A File is not safe for concurrent use.
 type File struct {
