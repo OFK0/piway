@@ -305,3 +305,148 @@ func rollupPoints(bucket map[string]*agg) []tsdb.Point {
 func (h *History) Close() error {
 	return errors.Join(h.raw.Close(), h.minute.Close(), h.hour.Close())
 }
+
+// Query limits (docs/API.md › GET /api/v1/series).
+const (
+	// MaxPoints is the most points a query returns per series; a smaller
+	// step is raised to fit.
+	MaxPoints = 1000
+	// maxRawRange is the longest range served from raw samples. Longer
+	// ranges read rollups: a day of raw data is ~29 MB to scan on a Pi.
+	maxRawRange = 6 * time.Hour
+)
+
+// Resolution names a tier.
+type Resolution string
+
+const (
+	ResolutionRaw    Resolution = "raw"
+	ResolutionMinute Resolution = "1m"
+	ResolutionHour   Resolution = "1h"
+)
+
+// Point is one bucket of a query result.
+type Point struct {
+	T             int64 // bucket start, ms
+	Avg, Min, Max float64
+}
+
+// Series is one matching series of a query result.
+type Series struct {
+	Name   string
+	Points []Point
+}
+
+// Result is the answer to a Query.
+type Result struct {
+	Resolution Resolution
+	Step       time.Duration
+	Series     []Series
+}
+
+// Query returns the series named name (exactly, or with any labels when
+// name has none) in [from, to), in buckets of step. It reads the
+// finest tier that suits the step and still holds data from the start of
+// the range.
+func (h *History) Query(name string, from, to time.Time, step time.Duration) (Result, error) {
+	if !to.After(from) {
+		return Result{}, errors.New("to must be after from")
+	}
+	span := to.Sub(from)
+	step = max(step, (span+MaxPoints-1)/MaxPoints, time.Second)
+
+	res, src := h.pickTier(from, span, step)
+	switch res {
+	case ResolutionMinute:
+		step = max(step, time.Minute).Truncate(time.Minute)
+	case ResolutionHour:
+		step = max(step, time.Hour).Truncate(time.Hour)
+	}
+	stepMs := step.Milliseconds()
+	match := matcher(name)
+
+	add := addRollup
+	if res == ResolutionRaw {
+		add = addRaw
+	}
+	// Same shape as compaction: bucket -> series -> rollup, so a query
+	// combines samples exactly as the 1m and 1h tiers do.
+	buckets := make(map[int64]map[string]*agg)
+	// The range is half-open, [from, to), so consecutive queries never
+	// return the same bucket twice.
+	err := src.Scan(from.UnixMilli(), to.UnixMilli()-1, func(series string, t int64, v float64) {
+		base := series
+		if i := strings.LastIndexByte(series, '|'); i >= 0 && res != ResolutionRaw {
+			base = series[:i]
+		}
+		if !match(base) {
+			return
+		}
+		b := t - t%stepMs
+		if buckets[b] == nil {
+			buckets[b] = make(map[string]*agg)
+		}
+		add(buckets[b], series, v)
+	})
+	if err != nil {
+		return Result{}, err
+	}
+
+	bySeries := make(map[string][]Point)
+	for _, b := range slices.Sorted(maps.Keys(buckets)) {
+		for name, a := range buckets[b] {
+			if a.n > 0 {
+				bySeries[name] = append(bySeries[name], Point{T: b, Avg: a.sum / a.n, Min: a.min, Max: a.max})
+			}
+		}
+	}
+	out := Result{Resolution: res, Step: step}
+	for _, name := range slices.Sorted(maps.Keys(bySeries)) {
+		out.Series = append(out.Series, Series{Name: name, Points: bySeries[name]})
+	}
+	return out, nil
+}
+
+// pickTier chooses where a query reads from: raw for short ranges at
+// sub-minute steps, then the finest rollup that has data from the start of
+// the range, falling back to the coarsest tier that has any.
+func (h *History) pickTier(from time.Time, span, step time.Duration) (Resolution, *tsdb.Store) {
+	covers := func(s *tsdb.Store) bool {
+		minT, _, ok := s.Bounds()
+		return ok && minT <= from.UnixMilli()
+	}
+	if step < time.Minute && span <= maxRawRange && covers(h.raw) {
+		return ResolutionRaw, h.raw
+	}
+	if step < time.Hour && covers(h.minute) {
+		return ResolutionMinute, h.minute
+	}
+	if covers(h.hour) {
+		return ResolutionHour, h.hour
+	}
+	// Nothing covers the start (a young install): use what exists.
+	switch {
+	case step < time.Minute && span <= maxRawRange:
+		return ResolutionRaw, h.raw
+	case step < time.Hour:
+		if _, _, ok := h.minute.Bounds(); ok {
+			return ResolutionMinute, h.minute
+		}
+		return ResolutionRaw, h.raw
+	default:
+		if _, _, ok := h.hour.Bounds(); ok {
+			return ResolutionHour, h.hour
+		}
+		return ResolutionMinute, h.minute
+	}
+}
+
+// matcher matches name exactly, and also every labelled variant of it
+// (name{...}) when name has no labels of its own.
+func matcher(name string) func(string) bool {
+	if strings.Contains(name, "{") {
+		return func(s string) bool { return s == name }
+	}
+	prefix := name + "{"
+	return func(s string) bool { return s == name || strings.HasPrefix(s, prefix) }
+}

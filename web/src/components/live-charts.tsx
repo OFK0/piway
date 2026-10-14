@@ -13,22 +13,16 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useHistory } from '@/hooks/use-history'
+import type { Point } from '@/lib/history-points'
 
 // Live charts for the overview (DESIGN.md › Data visualization): at most
 // two series per chart, raspberry solid then ink dashed, one y-axis,
 // thresholds as neutral dashed lines, values in text tokens.
 
-export const ranges = { '1m': 60_000, '5m': 300_000 } as const
+export const ranges = { '1m': 60_000, '5m': 300_000, '24h': 86_400_000 } as const
 export type Range = keyof typeof ranges
 
-interface Point {
-  t: number
-  cpu: number | null
-  mem: number | null
-  temp: number | null
-  rx: number | null
-  tx: number | null
-}
 
 function toPoint(s: Snapshot): Point {
   const net = s.network
@@ -44,6 +38,10 @@ function toPoint(s: Snapshot): Point {
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 const fmtTime = (t: number) => timeFormat.format(t)
+const minuteFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+const fmtMinute = (t: number) => minuteFormat.format(t)
+
+const rangeWords: Record<Range, string> = { '1m': 'minute', '5m': '5 minutes', '24h': '24 hours' }
 
 // Picks one unit for the whole visible window so the axis reads "KiB/s",
 // not a mix of units or long decimals.
@@ -57,17 +55,27 @@ function summary(name: string, unit: string, values: (number | null)[], range: R
   const v = values.filter((x): x is number => x !== null)
   if (v.length === 0) return `${name}: no data yet.`
   const f = (x: number) => `${x.toFixed(1)}${unit}`
-  return `${name} over the last ${range === '1m' ? 'minute' : '5 minutes'}: now ${f(v[v.length - 1])}, low ${f(Math.min(...v))}, high ${f(Math.max(...v))}.`
+  return `${name} over the last ${rangeWords[range]}: now ${f(v[v.length - 1])}, low ${f(Math.min(...v))}, high ${f(Math.max(...v))}.`
 }
 
 export default function LiveCharts(props: { history: Snapshot[]; range: Range; onRangeChange: (r: Range) => void }) {
   const { history, range } = props
+  // 24 hours come from the server's history (5-minute averages); the short
+  // ranges from the snapshots this page has received.
+  const longRange = range === '24h'
+  const stored = useHistory(longRange)
 
   const points = useMemo(() => {
+    if (longRange) return stored.points
     const all = history.map(toPoint)
     const end = all.length ? all[all.length - 1].t : 0
     return all.filter((p) => p.t >= end - ranges[range])
-  }, [history, range])
+  }, [history, range, longRange, stored.points])
+  const fmt = longRange ? fmtMinute : fmtTime
+  // The 24-hour axis always spans 24 hours, so time piway was not running
+  // shows as a gap instead of the chart stretching what data there is.
+  const end = stored.at
+  const xDomain: AxisDomain = longRange ? [end - ranges['24h'], end] : ['dataMin', 'dataMax']
 
   const net = useMemo(() => {
     const max = Math.max(0, ...points.flatMap((p) => [p.rx ?? 0, p.tx ?? 0]))
@@ -95,11 +103,19 @@ export default function LiveCharts(props: { history: Snapshot[]; range: Range; o
         >
           <ToggleGroupItem value="1m">1 min</ToggleGroupItem>
           <ToggleGroupItem value="5m">5 min</ToggleGroupItem>
+          <ToggleGroupItem value="24h">24 h</ToggleGroupItem>
         </ToggleGroup>
       </div>
+      {longRange && (stored.error || (stored.loading && points.length === 0)) && (
+        <p role="status" className="text-muted-foreground">
+          {stored.error ?? 'Loading the last 24 hours…'}
+        </p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
+          fmt={fmt}
+          xDomain={xDomain}
           title="CPU"
           unit="%"
           current={now?.cpu}
@@ -110,6 +126,8 @@ export default function LiveCharts(props: { history: Snapshot[]; range: Range; o
           threshold={{ y: 90, label: 'Saturated, 90%' }}
         />
         <ChartCard
+          fmt={fmt}
+          xDomain={xDomain}
           title="Temperature"
           unit="°C"
           current={now?.temp}
@@ -120,6 +138,8 @@ export default function LiveCharts(props: { history: Snapshot[]; range: Range; o
           threshold={{ y: 80, label: 'Throttling, 80 °C' }}
         />
         <ChartCard
+          fmt={fmt}
+          xDomain={xDomain}
           title="Memory"
           unit="%"
           current={now?.mem}
@@ -128,13 +148,26 @@ export default function LiveCharts(props: { history: Snapshot[]; range: Range; o
           data={points.map((p) => ({ t: p.t, v: p.mem }))}
           domain={[0, 100]}
         />
-        <NetworkCard data={net.data} unit={net.unit} label={summary('Network receive', ` ${net.unit}`, net.data.map((p) => p.rx), range)} />
+        <NetworkCard fmt={fmt} xDomain={xDomain} data={net.data} unit={net.unit} label={summary('Network receive', ` ${net.unit}`, net.data.map((p) => p.rx), range)} />
       </div>
     </section>
   )
 }
 
 const axis = { tickLine: false, axisLine: false, tickMargin: 8 } as const
+
+type AxisDomain = [number, number] | ['dataMin', 'dataMax']
+
+// Ticks every 4 hours on the local hour, for the 24-hour axis.
+function hourTicks([lo, hi]: [number, number]): number[] {
+  const step = 4 * 3_600_000
+  const first = new Date(lo)
+  first.setMinutes(0, 0, 0)
+  first.setHours(Math.ceil(first.getHours() / 4) * 4)
+  const out: number[] = []
+  for (let t = first.getTime(); t <= hi; t += step) if (t >= lo) out.push(t)
+  return out
+}
 
 // Temperature axis: 40–90 °C normally, extended down in steps of 10 for a
 // cold board so the line never leaves the plot.
@@ -151,28 +184,30 @@ function evenTicks([lo, hi]: [number, number]): number[] {
   return out
 }
 
-function xAxis() {
+function xAxis(fmt: (t: number) => string, domain: AxisDomain) {
+  const ticks = typeof domain[0] === 'number' ? hourTicks(domain as [number, number]) : undefined
   return (
     <XAxis
       dataKey="t"
       type="number"
       scale="time"
-      domain={['dataMin', 'dataMax']}
-      tickFormatter={fmtTime}
+      domain={domain}
+      ticks={ticks}
+      tickFormatter={fmt}
       minTickGap={48}
       {...axis}
     />
   )
 }
 
-function tooltip(unit: string) {
+function tooltip(unit: string, fmt: (t: number) => string) {
   return (
     <ChartTooltip
       cursor={{ stroke: 'var(--muted-foreground)' }}
       content={
         <ChartTooltipContent
           indicator="line"
-          labelFormatter={(_, payload) => fmtTime(Number(payload?.[0]?.payload?.t))}
+          labelFormatter={(_, payload) => fmt(Number(payload?.[0]?.payload?.t))}
           formatter={(value, name) => (
             <span className="flex w-full justify-between gap-4">
               <span className="text-muted-foreground">{name}</span>
@@ -188,6 +223,8 @@ function tooltip(unit: string) {
 }
 
 function ChartCard(props: {
+  fmt: (t: number) => string
+  xDomain: AxisDomain
   title: string
   unit: string
   current: number | null | undefined
@@ -213,7 +250,7 @@ function ChartCard(props: {
         <ChartContainer config={props.config} className="aspect-auto h-48 w-full" role="img" aria-label={props.label}>
           <LineChart data={props.data} margin={{ left: 0, right: 12, top: 8 }} accessibilityLayer>
             <CartesianGrid vertical={false} />
-            {xAxis()}
+            {xAxis(props.fmt, props.xDomain)}
             <YAxis {...axis} width={36} domain={props.domain} ticks={evenTicks(props.domain)} allowDataOverflow />
             {props.threshold && (
               <ReferenceLine
@@ -223,7 +260,7 @@ function ChartCard(props: {
                 label={{ value: props.threshold.label, position: 'insideTopRight', fill: 'var(--muted-foreground)', fontSize: 12 }}
               />
             )}
-            {tooltip(props.unit)}
+            {tooltip(props.unit, props.fmt)}
             <Line dataKey="v" type="monotone" stroke="var(--color-v)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
           </LineChart>
         </ChartContainer>
@@ -237,7 +274,7 @@ const netConfig = {
   tx: { label: 'Send', color: 'var(--chart-2)' },
 } satisfies ChartConfig
 
-function NetworkCard(props: { data: { t: number; rx: number | null; tx: number | null }[]; unit: string; label: string }) {
+function NetworkCard(props: { fmt: (t: number) => string; xDomain: AxisDomain; data: { t: number; rx: number | null; tx: number | null }[]; unit: string; label: string }) {
   return (
     <Card>
       <CardHeader>
@@ -248,9 +285,9 @@ function NetworkCard(props: { data: { t: number; rx: number | null; tx: number |
         <ChartContainer config={netConfig} className="aspect-auto h-48 w-full" role="img" aria-label={props.label}>
           <LineChart data={props.data} margin={{ left: 0, right: 12, top: 8 }} accessibilityLayer>
             <CartesianGrid vertical={false} />
-            {xAxis()}
+            {xAxis(props.fmt, props.xDomain)}
             <YAxis {...axis} width={44} />
-            {tooltip(props.unit)}
+            {tooltip(props.unit, props.fmt)}
             <ChartLegend content={<ChartLegendContent />} />
             <Line dataKey="rx" name="Receive" type="monotone" stroke="var(--color-rx)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
             <Line dataKey="tx" name="Send" type="monotone" stroke="var(--color-tx)" strokeWidth={2} strokeDasharray="4 3" dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />

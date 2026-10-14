@@ -117,7 +117,13 @@ func run(cfg config.Config) error {
 	}()
 
 	ui := webui.FS()
-	handler, err := server.New(ag, live, ui)
+	// A nil *history.History inside the interface would not compare equal
+	// to nil, so pass a true nil when recording is off.
+	var queries server.SeriesQuerier
+	if hist != nil {
+		queries = hist
+	}
+	handler, err := server.New(ag, live, queries, ui)
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
 	}

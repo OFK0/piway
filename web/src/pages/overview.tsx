@@ -35,9 +35,10 @@ const LiveCharts = lazy(() => import('@/components/live-charts'))
 
 // The chart range lives in the URL (?range=1m) so a link shows the same view.
 function useRange(): [Range, (r: Range) => void] {
-  const [range, setRange] = useState<Range>(() =>
-    new URLSearchParams(window.location.search).get('range') === '1m' ? '1m' : '5m',
-  )
+  const [range, setRange] = useState<Range>(() => {
+    const r = new URLSearchParams(window.location.search).get('range')
+    return r === '1m' || r === '24h' ? r : '5m'
+  })
   const update = useCallback((r: Range) => {
     setRange(r)
     const url = new URL(window.location.href)
@@ -118,7 +119,7 @@ function ChartsSkeleton() {
     <section aria-hidden="true" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="type-title">Trends</h2>
-        <SkeletonText className="h-8">1 min 5 min</SkeletonText>
+        <SkeletonText className="h-8">1 min 5 min 24 h</SkeletonText>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {['CPU', 'Temperature', 'Memory', 'Network'].map((title) => (
