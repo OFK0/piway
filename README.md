@@ -34,6 +34,12 @@ cd web && npm run dev                 # UI with hot reload on :5173, proxies the
 
 See [web/README.md](web/README.md).
 
+## Install a release
+
+Each release has a ready-to-run binary for the Pi (`linux/arm64`) with the
+dashboard built in. See [docs/RELEASING.md](docs/RELEASING.md#installing-on-the-pi)
+for downloading, verifying the checksum and installing it.
+
 ## Run as a user service
 
 ```sh
