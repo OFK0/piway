@@ -16,10 +16,10 @@ import (
 
 	"github.com/ofk0/piway/internal/agent"
 	"github.com/ofk0/piway/internal/config"
+	"github.com/ofk0/piway/internal/history"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
-	"github.com/ofk0/piway/internal/tsdb"
 	"github.com/ofk0/piway/internal/version"
 	"github.com/ofk0/piway/internal/webui"
 )
@@ -77,12 +77,19 @@ func run(cfg config.Config) error {
 		hub.Broadcast(b)
 	})
 
-	store, err := openHistory(cfg, log)
+	hist, err := openHistory(cfg, log)
 	if err != nil {
 		return err
 	}
-	if store != nil {
-		ag.OnPublish(recorder.New(store, log).Record)
+	compactDone := make(chan struct{})
+	if hist != nil {
+		ag.OnPublish(recorder.New(hist, log).Record)
+		go func() {
+			hist.Run(ctx, 10*time.Second)
+			close(compactDone)
+		}()
+	} else {
+		close(compactDone)
 	}
 
 	agentDone := make(chan struct{})
@@ -95,14 +102,15 @@ func run(cfg config.Config) error {
 	// agent (before the deferred Close releases the collectors' files) and
 	// the Hub, which tells every WebSocket to close. Shutdown does not track
 	// hijacked connections, so wait for their close handshakes here.
-	// The store closes last: Close writes pending samples, and the agent
-	// must not record into a closed store.
+	// The history closes last: Close writes pending samples, and neither
+	// the agent nor compaction may use a closed store.
 	defer func() {
 		stop()
 		<-agentDone
+		<-compactDone
 		live.Wait()
-		if store != nil {
-			if err := store.Close(); err != nil {
+		if hist != nil {
+			if err := hist.Close(); err != nil {
 				log.Error("close metrics history", "err", err)
 			}
 		}
@@ -142,15 +150,20 @@ func run(cfg config.Config) error {
 
 // openHistory opens the metrics history in cfg.DataDir, or returns nil when
 // recording is disabled (data_dir set to "").
-func openHistory(cfg config.Config, log *slog.Logger) (*tsdb.Store, error) {
+func openHistory(cfg config.Config, log *slog.Logger) (*history.History, error) {
 	if cfg.DataDir == "" {
 		log.Info("metrics history disabled (data_dir is empty)")
 		return nil, nil
 	}
-	store, err := tsdb.Open(cfg.DataDir, tsdb.Options{FlushInterval: cfg.FlushInterval, Logger: log})
+	h, err := history.Open(history.Options{
+		Dir:           cfg.DataDir,
+		FlushInterval: cfg.FlushInterval,
+		Retention:     history.Retention{Raw: cfg.RetentionRaw, Minute: cfg.Retention1m, Hour: cfg.Retention1h},
+		Logger:        log,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("metrics history: %w", err)
 	}
 	log.Info("recording metrics", "dir", cfg.DataDir, "flush_interval", cfg.FlushInterval)
-	return store, nil
+	return h, nil
 }

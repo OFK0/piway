@@ -271,3 +271,22 @@ func TestDefaultDataDir(t *testing.T) {
 		t.Errorf("without XDG_STATE_HOME: %q", got)
 	}
 }
+
+func TestRetentionSettings(t *testing.T) {
+	l := load(t, []string{"-retention-raw", "36h", "-retention-1m", "14d"}, env{"PIWAY_RETENTION_1H": "730d"}, "")
+	if l.RetentionRaw != 36*time.Hour || l.Retention1m != 14*day || l.Retention1h != 730*day {
+		t.Errorf("got %v %v %v", l.RetentionRaw, l.Retention1m, l.Retention1h)
+	}
+	var out strings.Builder
+	l.Print(&out)
+	for _, want := range []string{"retention_raw: 36h0m0s", "retention_1m: 14d", "retention_1h: 730d"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("print lacks %q:\n%s", want, out.String())
+		}
+	}
+	for _, bad := range []string{"30m", "xd", "-1d", "soon"} {
+		if _, err := Load([]string{"-retention-raw", bad}, env{}.lookup, "", io.Discard); err == nil {
+			t.Errorf("retention %q accepted", bad)
+		}
+	}
+}

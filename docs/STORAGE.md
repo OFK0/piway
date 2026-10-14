@@ -21,12 +21,36 @@ About 60 series on a Pi 4, named in Prometheus style so the range API and
 A collector that is unavailable or fails in a round contributes nothing, so a
 gap in a series means "not measured", never zero.
 
-## Size
+## Resolutions and retention
 
-Each sample costs about 9 bytes (a one-byte series id and a float64), and
-each round adds a small record header. Measured on a Pi 4: the history grows
-by about **1.2 MB per hour, 29 MB per day**. Retention and downsampling (#17)
-bound this.
+The history is kept at three resolutions, each in its own subdirectory of
+`data_dir`, and each deleted after its retention period:
+
+| Tier | Directory | Holds | Default retention | Disk |
+| ---- | --------- | ----- | ----------------- | ---- |
+| raw | `raw/` | every sample (1 s) | `retention_raw: 24h` | ~29 MB |
+| 1m | `1m/` | one rollup per series per minute | `retention_1m: 7d` | ~22 MB |
+| 1h | `1h/` | one rollup per series per hour | `retention_1h: 365d` | ~19 MB |
+
+About 70 MB in total on a Pi 4. Raw data grows by about 1.2 MB per hour:
+each sample costs about 9 bytes (a one-byte series id and a float64) plus
+a small header per round.
+
+A rollup keeps four values per series and bucket: `name|min`, `name|max`,
+`name|sum` and `name|n` (number of raw samples). The average is `sum / n`.
+All four combine exactly, so the hourly rollup is computed from the minute
+rollups without error. Averaging averages would be wrong whenever minutes
+have different sample counts, for example the minute piway restarted in.
+
+Compaction runs every 10 s. A minute is rolled up 5 s after it ends (so
+the round that started just before the boundary has arrived); an hour once
+all its minutes are. After a restart, compaction continues from the newest
+rollup on disk and fills in the time piway was down, as far as raw data
+remains. Minutes with no data get no rollup, so gaps stay gaps.
+
+Retention removes whole segment files, so data can outlive its retention
+by up to one segment span (1 hour of raw data, 1 day of minutes, 30 days of
+hours). Raw data is never removed before it has been rolled up.
 
 ## SD card writes
 
