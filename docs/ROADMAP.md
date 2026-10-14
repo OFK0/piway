@@ -42,7 +42,7 @@ Each milestone maps to a GitHub milestone; each bullet is an issue.
 - Remote access via Tailscale or Cloudflare Tunnel
 - Dashboard/API authentication
 - Host hardening guide (SSH keys, ufw, fail2ban, unattended upgrades)
-- Alert rules + Telegram notifications
+- Alert rules + Web Push notifications (needs HTTPS from remote access and authentication)
 
 ## M6 — MCP server
 - MCP server in Go (stdio + HTTP transport)
