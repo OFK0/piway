@@ -28,9 +28,9 @@ import (
 	"time"
 )
 
-// APIVersion is the Engine API version piway speaks. Docker 29 raised its
-// minimum to 1.44; 1.44 is also the newest version Docker 25 understands,
-// so it works with Debian 13's docker.io (26) and Docker CE (29).
+// APIVersion is the Engine API version piway speaks. Docker 25 and later
+// accept it: Debian 13's docker.io (26) and Docker CE (29, which on the Pi
+// accepts 1.40 to 1.56).
 const APIVersion = "1.44"
 
 // LabelApp marks containers managed by piway; the value is the app name.

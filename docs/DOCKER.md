@@ -54,7 +54,9 @@ systemctl --user enable --now docker
 ```
 
 The daemon's socket is `$XDG_RUNTIME_DIR/docker.sock`
-(`/run/user/1000/docker.sock`). Point the CLI at it:
+(`/run/user/1000/docker.sock`). Docker CE's setup tool also creates and
+selects a CLI context named `rootless`, so `docker` already talks to it;
+otherwise point the CLI at the socket:
 
 ```sh
 echo 'export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock' >> ~/.bashrc
@@ -64,6 +66,11 @@ docker run --rm hello-world
 
 piway finds the socket the same way: `$DOCKER_HOST` if set, else
 `$XDG_RUNTIME_DIR/docker.sock`.
+
+The rootless daemon can run next to a system (root) daemon: they use
+different sockets and data directories (`~/.local/share/docker`), and
+piway only talks to the rootless one. Turning the system daemon off saves
+memory and disk on the Pi if nothing else uses it.
 
 ## Memory limits (optional, needs a reboot)
 
@@ -85,4 +92,7 @@ Afterwards `cat /sys/fs/cgroup/cgroup.controllers` lists `memory`, and
 ```sh
 docker info --format '{{.SecurityOptions}}'   # includes name=rootless
 docker info --format '{{.CgroupVersion}} {{.CgroupDriver}}'   # 2 systemd
+
+# piway's client against the real daemon: pulls busybox, runs, stops, removes.
+PIWAY_DOCKER_TEST=1 go test ./internal/docker -run RealDaemon -v
 ```

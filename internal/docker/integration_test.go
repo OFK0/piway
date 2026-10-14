@@ -44,21 +44,31 @@ func TestRealDaemon(t *testing.T) {
 	if err := c.Start(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	// busybox's default command exits at once; the container still ran.
+	// busybox's default command exits at once, and the unless-stopped
+	// restart policy keeps starting it again: proof that it ran.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		st, err := c.Inspect(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !st.Running && !st.FinishedAt.IsZero() {
-			t.Logf("container ran and exited with %d", st.ExitCode)
+		if !st.StartedAt.IsZero() {
+			t.Logf("container started (status %s)", st.Status)
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("container still %s after 10s", st.Status)
+			t.Fatalf("container never started (status %s)", st.Status)
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Stop must end the restart loop: that is what "unless stopped" means.
+	if err := c.Stop(ctx, id, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
+	if st, err := c.Inspect(ctx, id); err != nil || st.Running || st.Status != "exited" {
+		t.Fatalf("after Stop: %+v, %v; want exited and not restarted", st, err)
 	}
 
 	list, err := c.List(ctx)
