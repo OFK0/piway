@@ -14,7 +14,7 @@ removed or retyped without moving to `/api/v2`.
 
 ## Sign-in
 
-Every path under `/api/` and `/metrics` needs a session, except
+Every path under `/api/`, `/metrics` and [`/mcp`](MCP.md) needs a session, except
 `/healthz`, the [session endpoints](#session-endpoints) and the
 [GitHub webhook](#post-apiv1webhooksgithub) (signed by GitHub instead).
 The dashboard's own files are public: they hold no data, and the sign-in

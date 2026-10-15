@@ -28,6 +28,7 @@ import (
 	"github.com/ofk0/piway/internal/deploy"
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/history"
+	"github.com/ofk0/piway/internal/mcp"
 	"github.com/ofk0/piway/internal/mdns"
 	"github.com/ofk0/piway/internal/push"
 	"github.com/ofk0/piway/internal/recorder"
@@ -41,6 +42,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		os.Exit(runMCP(os.Args[2:]))
+	}
 	cfg, err := config.Load(os.Args[1:], os.LookupEnv, config.DefaultPath(), os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return
@@ -230,6 +234,54 @@ func run(cfg config.Config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// runMCP is "piway mcp": an MCP server on stdin and stdout for a client
+// that starts it as a subprocess, such as Claude Code. It reaches a
+// running piway over its HTTP API (docs/MCP.md).
+func runMCP(args []string) int {
+	fs := flag.NewFlagSet("piway mcp", flag.ContinueOnError)
+	def := os.Getenv("PIWAY_URL")
+	if def == "" {
+		def = "http://127.0.0.1:8080"
+	}
+	url := fs.String("url", def, "piway's `URL` (env PIWAY_URL)")
+	tokenFile := fs.String("token-file", "", "read the API token from `file` instead of $PIWAY_TOKEN")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "usage: piway mcp [-url URL] [-token-file FILE]\n\nServes MCP on stdin/stdout. The API token comes from $PIWAY_TOKEN or -token-file.")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	// stdout carries the protocol; everything else goes to stderr.
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	token := os.Getenv("PIWAY_TOKEN")
+	if *tokenFile != "" {
+		b, err := os.ReadFile(*tokenFile)
+		if err != nil {
+			log.Error("read token", "err", err)
+			return 1
+		}
+		token = strings.TrimSpace(string(b))
+	}
+	c := &mcp.Client{Base: *url}
+	if token != "" {
+		c.Authorization = "Bearer " + token
+	} else {
+		log.Warn("no API token ($PIWAY_TOKEN or -token-file): only works while piway has no password and runs on this machine")
+	}
+	s := &mcp.Server{Name: "piway", Version: version.Version, Tools: mcp.Tools(), Log: log}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := s.ServeStdio(ctx, c, os.Stdin, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
+		log.Error("mcp", "err", err)
+		return 1
+	}
+	return 0
 }
 
 // openAlerts loads the alert rules and logs every alert that fires or

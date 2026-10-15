@@ -10,6 +10,7 @@ import (
 
 	"github.com/ofk0/piway/internal/agent"
 	"github.com/ofk0/piway/internal/auth"
+	"github.com/ofk0/piway/internal/mcp"
 	"github.com/ofk0/piway/internal/prom"
 	"github.com/ofk0/piway/internal/version"
 )
@@ -83,6 +84,19 @@ func New(d Deps) (http.Handler, error) {
 	}
 	mux.Handle("/api/", protect(api))
 	mux.Handle("GET /metrics", protect(prom.Handler(snapshots.Latest)))
+	// MCP over streamable HTTP. Its tools call this same handler, in
+	// process, with the caller's credentials (internal/mcp).
+	var root http.Handler
+	mcpServer := &mcp.Server{Name: "piway", Version: version.Version, Tools: mcp.Tools()}
+	mux.Handle("/mcp", protect(mcpServer.HTTPHandler(func(r *http.Request) *mcp.Client {
+		return &mcp.Client{
+			Base:          "http://piway.internal",
+			Authorization: r.Header.Get("Authorization"),
+			Cookie:        r.Header.Get("Cookie"),
+			RemoteAddr:    r.RemoteAddr,
+			HTTP:          &http.Client{Transport: mcp.InProcess{Handler: root}, Timeout: 30 * time.Second},
+		}
+	})))
 	// The dashboard's files are public: they hold no data, and its login
 	// page is one of them.
 	mux.Handle("/", getOnly(dashboard))
@@ -90,7 +104,8 @@ func New(d Deps) (http.Handler, error) {
 	// Reject cross-site form posts and fetches (CSRF): browsers say where
 	// a request comes from in Sec-Fetch-Site or Origin. Requests without
 	// those headers, such as GitHub's webhooks, are not from a browser.
-	return http.NewCrossOriginProtection().Handler(mux), nil
+	root = http.NewCrossOriginProtection().Handler(mux)
+	return root, nil
 }
 
 // getOnly answers 405 to anything but GET and HEAD. The dashboard cannot

@@ -76,6 +76,7 @@ changes that span the whole repository.
 | `auth` | `internal/auth` (sign-in, sessions) |
 | `alert` | `internal/alert`, `docs/ALERTS.md` (alert rules) |
 | `push` | `internal/push`, `web/public/sw.js` (Web Push) |
+| `mcp` | `internal/mcp`, `docs/MCP.md` (MCP server) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |
