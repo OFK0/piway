@@ -25,7 +25,50 @@ type fakeHost struct {
 	http   map[string]int // url -> status; missing means unreachable
 	docker *docker.Info   // nil: no daemon
 	free   uint64
+
+	// What setup did, in order: "$ argv..." for commands, "write path" and
+	// "rm path" for files.
+	did     []string
+	stdins  map[string]string // command -> stdin it was given
+	written map[string]string
+	failOn  string // a command that fails when run
 }
+
+func (f *fakeHost) Exec(_ context.Context, argv []string, stdin string) error {
+	cmd := strings.Join(argv, " ")
+	f.did = append(f.did, "$ "+cmd)
+	if stdin != "" {
+		if f.stdins == nil {
+			f.stdins = map[string]string{}
+		}
+		f.stdins[cmd] = stdin
+	}
+	if f.failOn != "" && strings.Contains(cmd, f.failOn) {
+		return errors.New("exit status 100")
+	}
+	return nil
+}
+
+func (f *fakeHost) WriteFile(name string, data []byte, _ fs.FileMode) error {
+	f.did = append(f.did, "write "+name)
+	if f.written == nil {
+		f.written = map[string]string{}
+	}
+	f.written[name] = string(data)
+	if f.files == nil {
+		f.files = map[string]string{}
+	}
+	f.files[name] = string(data)
+	return nil
+}
+
+func (f *fakeHost) RemoveAll(name string) error {
+	f.did = append(f.did, "rm "+name)
+	delete(f.files, name)
+	return nil
+}
+
+func (f *fakeHost) Executable() (string, error) { return "/tmp/piway-install/piway", nil }
 
 func (f *fakeHost) Run(_ context.Context, name string, args ...string) (string, error) {
 	key := strings.Join(append([]string{name}, args...), " ")

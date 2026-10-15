@@ -54,6 +54,9 @@ cat dist/checksums.txt   # same hash as the release's checksums.txt
 
 ## Installing on the Pi
 
+`install.sh` and `piway setup` do all of this ([INSTALL.md](INSTALL.md)).
+The steps below are what they run, for installing by hand.
+
 ```sh
 V=v0.2.0
 curl -fsSLO https://github.com/OFK0/piway/releases/download/$V/piway_linux_arm64.tar.gz

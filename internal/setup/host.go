@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -34,6 +35,17 @@ type Host interface {
 	DiskFree(path string) (uint64, error)
 	Arch() string
 	Root() bool
+
+	// Exec runs a step's command attached to the terminal, so sudo can ask
+	// for a password and long installs show progress. stdin, when not
+	// empty, is fed to the command instead of the terminal.
+	Exec(ctx context.Context, argv []string, stdin string) error
+	// WriteFile writes a file as the user, creating its directory.
+	WriteFile(name string, data []byte, perm fs.FileMode) error
+	// RemoveAll deletes a file or directory tree; a missing one is fine.
+	RemoveAll(name string) error
+	// Executable is the path of the running piway binary.
+	Executable() (string, error)
 }
 
 // System is the real machine.
@@ -52,6 +64,27 @@ func (System) LookPath(file string) (string, error)  { return exec.LookPath(file
 func (System) Getenv(key string) string              { return os.Getenv(key) }
 func (System) Arch() string                          { return runtime.GOARCH }
 func (System) Root() bool                            { return os.Geteuid() == 0 }
+
+func (System) Exec(ctx context.Context, argv []string, stdin string) error {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	} else {
+		cmd.Stdin = os.Stdin
+	}
+	return cmd.Run()
+}
+
+func (System) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(name, data, perm)
+}
+
+func (System) RemoveAll(name string) error { return os.RemoveAll(name) }
+func (System) Executable() (string, error) { return os.Executable() }
 
 func (System) HTTPStatus(ctx context.Context, url string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
