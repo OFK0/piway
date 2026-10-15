@@ -72,6 +72,7 @@ changes that span the whole repository.
 | `pipeline` | `internal/deploy` (build pipeline) |
 | `router` | `internal/router` (stable app addresses) |
 | `caddy` | `internal/caddy`, `docs/PROXY.md` (app domains) |
+| `mdns` | `internal/mdns` (app names on the LAN) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |

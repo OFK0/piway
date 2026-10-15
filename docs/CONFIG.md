@@ -37,7 +37,7 @@ The output is itself a valid config file.
 | `retention_1h` | `PIWAY_RETENTION_1H` | `-retention-1h` | `365d` | How long per-hour rollups are kept. |
 | `webhook_secret` | `PIWAY_WEBHOOK_SECRET` | `-webhook-secret` | empty | Secret shared with GitHub for webhook signatures, at least 16 characters. Empty disables webhooks. Never shown by `-print-config`. See [DEPLOY.md](DEPLOY.md). |
 | `apps_file` | `PIWAY_APPS_FILE` | `-apps-file` | `~/.config/piway/apps.yaml` | Repositories and branches that deploy on push. |
-| `proxy_domain` | `PIWAY_PROXY_DOMAIN` | `-proxy-domain` | empty | Publish each app at `<name>.<domain>` through Caddy, such as `pi.local`. Empty disables it. See [PROXY.md](PROXY.md). |
+| `proxy_domain` | `PIWAY_PROXY_DOMAIN` | `-proxy-domain` | empty | Publish each app at `<name>.<domain>` through Caddy, such as `local`. A `.local` domain is also published on the LAN over mDNS. Empty disables it. See [PROXY.md](PROXY.md). |
 | `proxy_listen` | `PIWAY_PROXY_LISTEN` | `-proxy-listen` | `":8443"` | Address Caddy serves apps on. Ports below 1024 need a sysctl change ([PROXY.md](PROXY.md#ports)). |
 | `proxy_tls` | `PIWAY_PROXY_TLS` | `-proxy-tls` | `true` | Serve apps over HTTPS, with certificates from Caddy. `false` serves plain HTTP. |
 | `caddy_admin` | `PIWAY_CADDY_ADMIN` | `-caddy-admin` | `"localhost:2019"` | Caddy's admin API. |

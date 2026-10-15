@@ -8,10 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/ofk0/piway/internal/deploy"
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/history"
+	"github.com/ofk0/piway/internal/mdns"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/router"
 	"github.com/ofk0/piway/internal/server"
@@ -243,7 +246,8 @@ func (d logDeployer) Deploy(r webhook.Request) error {
 }
 
 // openProxy publishes the apps in routes at <name>.<proxy_domain> through
-// Caddy, or returns nil when proxy_domain is empty.
+// Caddy, and over mDNS for a .local domain. It returns nil when
+// proxy_domain is empty.
 func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, log *slog.Logger) (*caddy.Proxy, error) {
 	if cfg.ProxyDomain == "" {
 		log.Info("app domains disabled (proxy_domain is empty)")
@@ -259,15 +263,37 @@ func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, lo
 	if err != nil {
 		return nil, err
 	}
-	changed := make(chan struct{}, 1)
+	// Each watcher gets its own channel; a pending signal is enough, since
+	// a sync reads the latest routes.
+	var watchers []chan struct{}
+	watch := func() <-chan struct{} {
+		c := make(chan struct{}, 1)
+		watchers = append(watchers, c)
+		return c
+	}
+	go p.Run(ctx, watch(), routes.Ports, 30*time.Second)
+	log.Info("publishing apps through caddy", "domain", cfg.ProxyDomain, "listen", cfg.ProxyListen, "tls", cfg.ProxyTLS, "admin", cfg.CaddyAdmin)
+
+	if mdns.Publishes(cfg.ProxyDomain) {
+		if avahi, err := mdns.Connect(); err != nil {
+			log.Warn("app names are not published on the LAN: no avahi daemon", "err", err)
+		} else {
+			names := func() []string { return slices.Collect(maps.Keys(routes.Ports())) }
+			pub := mdns.New(avahi, cfg.ProxyDomain, log)
+			go func() {
+				pub.Run(ctx, watch(), names, 30*time.Second)
+				avahi.Close()
+			}()
+		}
+	}
 	routes.OnChange(func() {
-		select {
-		case changed <- struct{}{}:
-		default: // a sync is already due; it reads the latest routes
+		for _, c := range watchers {
+			select {
+			case c <- struct{}{}:
+			default:
+			}
 		}
 	})
-	go p.Run(ctx, changed, routes.Ports, 30*time.Second)
-	log.Info("publishing apps through caddy", "domain", cfg.ProxyDomain, "listen", cfg.ProxyListen, "tls", cfg.ProxyTLS, "admin", cfg.CaddyAdmin)
 	return p, nil
 }
 
