@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // opsAPI fakes the deploy API and records the requests that change things.
@@ -154,7 +155,7 @@ func TestChangingToolsWithConfirm(t *testing.T) {
 	}
 	for _, tc := range calls {
 		text, isErr := callTool(t, c, tc.tool, tc.args)
-		if isErr || !strings.Contains(text, "build 20261015T120000Z-ddddddd queued") || !strings.Contains(text, `tail_logs build="20261015T120000Z-ddddddd"`) {
+		if isErr || !strings.Contains(text, "build 20261015T120000Z-ddddddd queued") || !strings.Contains(text, `tail_logs with build="20261015T120000Z-ddddddd"`) {
 			t.Errorf("%s: %q", tc.tool, text)
 		}
 	}
@@ -219,5 +220,48 @@ func TestEveryToolIsAnnotated(t *testing.T) {
 		if changing[tool.Name] && !strings.Contains(tool.Description, "confirm: true") {
 			t.Errorf("%s does not say it needs confirm", tool.Name)
 		}
+	}
+}
+
+// Claude Code shows the model structuredContent instead of the text when
+// a result has both, so only results whose JSON is complete may carry it.
+func TestStructuredContentOnlyWhereComplete(t *testing.T) {
+	c := client((&opsAPI{}).handler(), "")
+	for _, tc := range []struct{ tool, args string }{
+		{"deploy", `{"app":"blog","confirm":true}`},
+		{"restart_app", `{"app":"blog","confirm":true}`},
+		{"tail_logs", `{"build":"b3"}`},
+		{"tail_logs", `{"app":"blog"}`},
+	} {
+		r := rpc(t, server(), c, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+tc.tool+`","arguments":`+tc.args+`}}`)
+		if res := r["result"].(map[string]any); res["structuredContent"] != nil {
+			t.Errorf("%s %s has structuredContent, which would hide its text: %v", tc.tool, tc.args, res["structuredContent"])
+		}
+	}
+}
+
+func TestTailLogsWaitsForTheBuild(t *testing.T) {
+	pollEvery = time.Millisecond
+	defer func() { pollEvery = 2 * time.Second }()
+	var mu sync.Mutex
+	asks := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/builds/b9", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		asks++
+		state := "running"
+		if asks >= 3 {
+			state = "succeeded"
+		}
+		mu.Unlock()
+		w.Write([]byte(`{"id":"b9","repo":"OFK0/blog","branch":"main","commit":"eeeeeee","state":"` + state + `"}`))
+	})
+	mux.HandleFunc("GET /api/v1/builds/b9/log", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("==> Deployed blog\n")) })
+	text, isErr := callTool(t, client(mux, ""), "tail_logs", `{"build":"b9","wait_seconds":10}`)
+	if isErr || !strings.HasPrefix(text, "Build b9 of OFK0/blog@main (commit eeeeeee): succeeded") || asks != 3 {
+		t.Errorf("after %d asks: %q", asks, text)
+	}
+	if text, isErr := callTool(t, client(mux, ""), "tail_logs", `{"app":"blog","wait_seconds":5}`); !isErr || !strings.Contains(text, "only with build") {
+		t.Errorf("wait without build: %q", text)
 	}
 }

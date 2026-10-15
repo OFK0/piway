@@ -46,8 +46,10 @@ type Annotations struct {
 	OpenWorld   bool `json:"openWorldHint"`
 }
 
-// Result is a tool's answer: text for the model, and the same data as
-// JSON for clients that use it.
+// Result is a tool's answer: text for the model, and optionally the same
+// data as JSON. Set Structured only when it holds everything the text
+// says: clients such as Claude Code give the model the JSON instead of
+// the text when both are there.
 type Result struct {
 	Content    []Content `json:"content"`
 	Structured any       `json:"structuredContent,omitempty"`

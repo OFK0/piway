@@ -187,8 +187,9 @@ func verb(b *build) string {
 }
 
 func queued(what string, b build) Result {
+	// Text only: the build's JSON would leave out what to do next.
 	return Text(fmt.Sprintf("%s: build %s queued (commit %s). It runs in the background, one build at a time; "+
-		"follow it with tail_logs build=%q until it says Deployed or Failed.", what, b.ID, short(b.Commit), b.ID), b)
+		"to see how it ends, call tail_logs with build=%q and wait_seconds=120.", what, b.ID, short(b.Commit), b.ID), nil)
 }
 
 func deployTool() Tool {
@@ -336,14 +337,17 @@ func tailLogs() Tool {
 				"app":   appProp("An app whose running container to read."),
 				"build": map[string]any{"type": "string", "description": "A build id, as deploy or list_apps report it."},
 				"lines": map[string]any{"type": "integer", "minimum": 1, "maximum": maxLogLines, "default": 100, "description": "How many lines from the end."},
+				"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": maxWait, "default": 0,
+					"description": "With build: wait up to this long for the build to finish before answering, instead of polling."},
 			},
 			"additionalProperties": false,
 		},
 		Annotations: Annotations{ReadOnly: true},
 		Call: func(ctx context.Context, c *Client, args json.RawMessage) (Result, error) {
 			var a struct {
-				App, Build string
-				Lines      int
+				App, Build  string
+				Lines       int
+				WaitSeconds int `json:"wait_seconds"`
 			}
 			if err := decode(args, &a); err != nil {
 				return Result{}, err
@@ -353,6 +357,9 @@ func tailLogs() Tool {
 			}
 			if a.Lines < 1 || a.Lines > maxLogLines {
 				return Result{}, fmt.Errorf("lines must be between 1 and %d", maxLogLines)
+			}
+			if a.WaitSeconds < 0 || a.WaitSeconds > maxWait || (a.WaitSeconds > 0 && a.Build == "") {
+				return Result{}, fmt.Errorf("wait_seconds is 0 to %d, and only with build", maxWait)
 			}
 			switch {
 			case a.App != "" && a.Build == "":
@@ -369,8 +376,8 @@ func tailLogs() Tool {
 				}
 				return Text(fmt.Sprintf("Last %d lines of %s:\n%s", a.Lines, a.App, out), nil), nil
 			case a.Build != "" && a.App == "":
-				var b build
-				if err := c.Get(ctx, "/api/v1/builds/"+url.PathEscape(a.Build), &b); err != nil {
+				b, err := waitBuild(ctx, c, a.Build, time.Duration(a.WaitSeconds)*time.Second)
+				if err != nil {
 					if r, ok := deploysOff(err); ok {
 						return r, nil
 					}
@@ -384,10 +391,36 @@ func tailLogs() Tool {
 				if b.Error != "" {
 					head += " (" + b.Error + ")"
 				}
-				return Text(head+"\n"+lastLines(log, a.Lines), b), nil
+				return Text(head+"\n"+lastLines(log, a.Lines), nil), nil
 			}
 			return Result{}, errors.New("give app or build")
 		},
+	}
+}
+
+// maxWait bounds wait_seconds: clients time out tool calls after a while.
+const maxWait = 300
+
+// pollEvery is how often waitBuild asks; a variable for tests.
+var pollEvery = 2 * time.Second
+
+// waitBuild gets build id, asking again until it is finished or wait has
+// passed.
+func waitBuild(ctx context.Context, c *Client, id string, wait time.Duration) (build, error) {
+	deadline := time.Now().Add(wait)
+	for {
+		var b build
+		if err := c.Get(ctx, "/api/v1/builds/"+url.PathEscape(id), &b); err != nil {
+			return b, err
+		}
+		if b.State != "queued" && b.State != "running" || !time.Now().Before(deadline) {
+			return b, nil
+		}
+		select {
+		case <-ctx.Done():
+			return b, ctx.Err()
+		case <-time.After(pollEvery):
+		}
 	}
 }
 
