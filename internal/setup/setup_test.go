@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	files "github.com/ofk0/piway/deploy"
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/docker"
 )
@@ -151,7 +152,7 @@ func healthyPi() *fakeHost {
 			"/etc/subuid":                     "pi:100000:65536\n",
 			"/etc/subgid":                     "pi:100000:65536\n",
 			"/home/pi/.config/piway/password": "$argon2id$...",
-			"/home/pi/.config/systemd/user/piway.service":   "",
+			"/home/pi/.config/systemd/user/piway.service":   string(files.PiwayService),
 			"/home/pi/.config/systemd/user/caddy.service":   "",
 			"/home/pi/.local/state/piway":                   "",
 			"/proc/sys/net/ipv4/ip_unprivileged_port_start": "443\n",
@@ -417,5 +418,83 @@ func TestSystemHost(t *testing.T) {
 	}
 	if free, err := h.DiskFree(t.TempDir()); err != nil || free == 0 {
 		t.Errorf("DiskFree = %d, %v", free, err)
+	}
+}
+
+// A unit from before #104 starts piway without waiting for Docker: doctor
+// warns, and setup replaces it without restarting piway for that alone.
+func TestOldUnitIsUpdated(t *testing.T) {
+	env := testEnv()
+	env.Config.ProxyDomain = "local"
+	env.Config.ProxyListen = ":443"
+	h := healthyPi()
+	h.env["PATH"] = "/home/pi/.local/bin:/usr/bin"
+	h.files["/home/pi/.config/systemd/user/piway.service"] = "[Unit]\nDescription=piway agent\nAfter=network-online.target\n\n[Service]\nExecStart=%h/.local/bin/piway\n"
+	r := Doctor(context.Background(), h, env)
+	if res, _ := r.Get("unit"); res.Status != Warn {
+		t.Fatalf("unit check = %+v, want a warning", res)
+	}
+	steps, err := Plan(context.Background(), h, env, Options{ProxyDomain: "local", Docker: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	var unit Step
+	for _, s := range steps {
+		if len(s.Actions) > 0 {
+			ids = append(ids, s.ID)
+		}
+		if s.ID == "unit" {
+			unit = s
+		}
+	}
+	if strings.Join(ids, " ") != "unit" {
+		t.Fatalf("steps = %v, want only the unit update (no restart)", ids)
+	}
+	if a := unit.Actions[0]; !bytes.Equal(a.Content, files.PiwayService) {
+		t.Errorf("wrote %q", a.Content)
+	}
+}
+
+func TestStartsAfter(t *testing.T) {
+	for unit, want := range map[string]bool{
+		"[Unit]\nAfter=network-online.target docker.service\n":        true,
+		"[Unit]\nAfter = docker.service\n":                            true,
+		"[Unit]\nAfter=network-online.target\nAfter=docker.service\n": true,
+		"[Unit]\nAfter=network-online.target\n":                       false,
+		"[Unit]\n# After=docker.service\n":                            false,
+		"[Unit]\nWants=docker.service\n":                              false,
+	} {
+		if got := startsAfter([]byte(unit), "docker.service"); got != want {
+			t.Errorf("%q: %v, want %v", unit, got, want)
+		}
+	}
+}
+
+// Turning on the memory cgroup takes effect at the next boot: setup must
+// not restart piway for it (seen on a real Pi: "restart it to pick up the
+// changes above" with nothing to pick up).
+func TestNoRestartForRebootOnlySteps(t *testing.T) {
+	env := testEnv()
+	env.Config.ProxyDomain = "local"
+	env.Config.ProxyListen = ":443"
+	h := healthyPi()
+	h.env["PATH"] = "/home/pi/.local/bin:/usr/bin"
+	h.docker = &docker.Info{MemoryLimit: false}
+	h.files["/boot/firmware/cmdline.txt"] = "console=serial0,115200 root=PARTUUID=0000-02 rootwait\n"
+	steps, err := Plan(context.Background(), h, env, Options{ProxyDomain: "local", Docker: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	reboot := false
+	for _, s := range steps {
+		if len(s.Actions) > 0 {
+			ids = append(ids, s.ID)
+		}
+		reboot = reboot || s.Reboot
+	}
+	if strings.Join(ids, " ") != "memory-cgroup" || !reboot {
+		t.Errorf("steps = %v (reboot %v), want only memory-cgroup, which needs a reboot, and no restart", ids, reboot)
 	}
 }

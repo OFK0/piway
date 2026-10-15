@@ -168,6 +168,25 @@ type planner struct {
 
 func (p *planner) add(s Step) { p.steps = append(p.steps, s) }
 
+// restartFor are the steps whose result piway only sees when it starts:
+// its binary and config, the Docker daemon, Caddy and avahi. Others need
+// no restart: the password is read on every sign-in, the memory cgroup
+// and the unit's boot order wait for a reboot.
+var restartFor = map[string]bool{
+	"binary": true, "config": true,
+	"docker": true, "root-daemon": true, "subids": true, "rootless": true,
+	"caddy": true, "caddy-service": true, "avahi": true,
+}
+
+func (p *planner) needsRestart() bool {
+	for _, s := range p.steps {
+		if restartFor[s.ID] {
+			return true
+		}
+	}
+	return false
+}
+
 // note is a step with nothing to run, only something to tell.
 func (p *planner) note(id, msg string) { p.add(Step{ID: id + "-note", Title: "Note", Manual: msg}) }
 
@@ -310,6 +329,14 @@ func (p *planner) proxy(r *Report, domain, listen, bin, unitDir string) {
 func (p *planner) service(r *Report, unitDir string, wroteConfig bool) {
 	res, _ := r.Get("service")
 	unit := filepath.Join(unitDir, "piway.service")
+	if u, ok := r.Get("unit"); ok && u.Status == Warn && res.Status == OK {
+		// An older unit: replace it. The boot order only matters at the
+		// next boot, so no restart for this alone.
+		p.add(Step{ID: "unit", Title: "Update the piway service unit", Why: u.Detail, Actions: []Action{
+			{Path: unit, Content: files.PiwayService, Mode: 0o644},
+			{Argv: []string{"systemctl", "--user", "daemon-reload"}},
+		}})
+	}
 	s := Step{ID: "service", Title: "Run piway as a user service", Why: res.Detail}
 	switch {
 	case res.Status != OK:
@@ -318,7 +345,7 @@ func (p *planner) service(r *Report, unitDir string, wroteConfig bool) {
 				Action{Argv: []string{"systemctl", "--user", "daemon-reload"}})
 		}
 		s.Actions = append(s.Actions, Action{Argv: []string{"systemctl", "--user", "enable", "--now", "piway"}})
-	case wroteConfig || len(p.steps) > 0:
+	case wroteConfig || p.needsRestart():
 		// Running already: restart so it picks up the new config, Docker
 		// and Caddy.
 		s.Why = "running; restart it to pick up the changes above"

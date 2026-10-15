@@ -61,6 +61,16 @@ func (c *checker) run(name string, args ...string) (string, error) {
 }
 
 // unit is the path of a systemd user unit.
+// startsAfter reports whether a systemd unit orders itself after dep.
+func startsAfter(unit []byte, dep string) bool {
+	for line := range strings.SplitSeq(string(unit), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && strings.TrimSpace(k) == "After" && slices.Contains(strings.Fields(v), dep) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *checker) unit(name string) string {
 	return filepath.Join(c.env.Home, ".config", "systemd", "user", name+".service")
 }
@@ -178,6 +188,11 @@ func (c *checker) piway() {
 		c.add("service", "Service", Fail, "enabled but not running", "systemctl --user restart piway\njournalctl --user -u piway -n 50   # why it stopped")
 	default:
 		c.add("service", "Service", OK, "enabled and running", "")
+	}
+	// Units installed before piway waited for Docker at boot (#104): it
+	// then starts first, finds no daemon and keeps deploys off.
+	if b, err := c.h.ReadFile(c.unit("piway")); err == nil && !startsAfter(b, "docker.service") {
+		c.add("unit", "Boot order", Warn, "the service does not wait for Docker at boot, so deploys can stay off after a reboot", "piway setup   # installs the current unit")
 	}
 
 	switch out, err := c.run("loginctl", "show-user", c.env.User, "--property=Linger", "--value"); {
