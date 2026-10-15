@@ -6,6 +6,7 @@ import { useSession } from '@/components/session-gate'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { usePathname, usePendingNavigation } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 const nav = [
@@ -28,6 +29,8 @@ function SignOut() {
 // Page frame: a hairline header with the brand and global controls, a
 // left-aligned content column, and a quiet footer.
 export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; children: ReactNode }) {
+  const pathname = usePathname()
+  const pending = usePendingNavigation()
   return (
     <div className="flex min-h-svh flex-col">
       <a
@@ -36,7 +39,7 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
       >
         Skip to content
       </a>
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+      <header className="sticky top-0 z-40 [view-transition-name:site-header] border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 md:px-6">
           <a href="/" aria-label="piway overview">
             <Logo mark className="sm:hidden" />
@@ -44,7 +47,7 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
           </a>
           <nav aria-label="Main" className="ml-2 flex items-center gap-1 sm:ml-4">
             {nav.map((item) => {
-              const current = item.match(window.location.pathname)
+              const current = item.match(pathname)
               return (
                 <a
                   key={item.href}
@@ -66,6 +69,12 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
             <SignOut />
           </div>
         </div>
+        {/* A page change waiting for code on a slow network (lib/navigation.ts). */}
+        {pending && (
+          <div role="progressbar" aria-label="Loading page" className="absolute inset-x-0 -bottom-px h-0.5 overflow-hidden">
+            <div className="h-full w-1/3 animate-[nav-progress_1s_ease-in-out_infinite] bg-brand" />
+          </div>
+        )}
       </header>
 
       <main id="main" className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-6 md:px-6 md:py-8">

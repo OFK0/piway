@@ -271,6 +271,25 @@ already drawn for them; nothing grows, moves or appears around them.
 - **Spinners are for actions, skeletons are for content.** A page or card is
   never replaced by a spinner.
 
+### Page changes
+
+Moving between dashboard pages never reloads the document
+(`lib/navigation.ts`), so the header, the session and the live stream stay
+as they are.
+
+- **Links stay plain `<a href>`.** A click on one that leads to another
+  dashboard page is handled in place; new-tab clicks, downloads, files and
+  other sites keep the browser's behaviour, and every page still opens from
+  its address.
+- **The old page stays until the new one can draw.** Navigation loads the
+  next page's code first and then swaps in one frame: no empty shell, no
+  blank page. If that takes over 150 ms, a thin raspberry bar runs along the
+  header's bottom edge.
+- **A short cross-fade** (150 ms view transition) where the browser supports
+  it; the header is not part of it and stays still. None under reduced motion.
+- **Scroll:** a new page starts at the top (or at its `#anchor`); Back and
+  Forward return to where the page was left.
+
 ## Logo
 
 The mark is a gauge: a stem and a ring in ink, with a raspberry needle and

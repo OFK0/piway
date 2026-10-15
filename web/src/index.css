@@ -234,6 +234,30 @@
   --tw-ring-shadow: 0 0 #0000;
 }
 
+/* Page changes (lib/navigation.ts): the content cross-fades quickly, and the
+   header, a group of its own, stays still. Navigation skips the transition
+   entirely under reduced motion. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+  animation-timing-function: ease-out;
+}
+::view-transition-group(site-header),
+::view-transition-new(site-header) {
+  animation: none;
+}
+::view-transition-old(site-header) {
+  display: none;
+}
+@keyframes nav-progress {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 300% 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

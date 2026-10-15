@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 
+import { AppShell } from '@/components/app-shell'
 import { fetchSession, logout, onSignedOut, type Session } from '@/lib/session'
 import { LocalOnlyPage, LoginPage } from '@/pages/login'
 
@@ -39,7 +40,9 @@ export function SessionGate({ children }: { children: ReactNode }) {
   }, [load])
 
   if (error && !session) return <LoginPage unreachable={error} onRetry={load} onSignedIn={setSession} />
-  if (!session) return null // one fast request; a spinner would only flash
+  // One fast request. The empty shell, not a blank page, so the header is
+  // already in place when the page arrives.
+  if (!session) return <AppShell>{null}</AppShell>
   if (!session.authenticated) {
     return session.mode === 'local' ? <LocalOnlyPage /> : <LoginPage onSignedIn={setSession} />
   }

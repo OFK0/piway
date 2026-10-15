@@ -6,7 +6,11 @@ import App from '@/App'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { interceptLinks } from '@/lib/navigation'
 import '@/index.css'
+
+// Links between dashboard pages change the page without reloading it.
+interceptLinks()
 
 const iconDefaults = {
   color: 'currentColor',
