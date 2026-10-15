@@ -3,6 +3,7 @@ import { CheckCircleIcon, ClockIcon, ProhibitIcon, WarningCircleIcon } from '@ph
 import type { Build } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
+import { capitalize, doneVerb, runningVerb } from '@/lib/build-labels'
 
 // Icon + word for every state (DESIGN.md › Principles); raspberry only for
 // a failure, the one state that needs attention.
@@ -12,7 +13,7 @@ export function BuildState({ build }: { build: Pick<Build, 'state' | 'kind'> }) 
       return (
         <Badge variant="outline">
           <Spinner data-icon="inline-start" aria-hidden />
-          {build.kind === 'rollback' ? 'Rolling back' : 'Building'}
+          {runningVerb(build)}
         </Badge>
       )
     case 'queued':
@@ -26,7 +27,7 @@ export function BuildState({ build }: { build: Pick<Build, 'state' | 'kind'> }) 
       return (
         <Badge variant="secondary">
           <CheckCircleIcon data-icon="inline-start" />
-          {build.kind === 'rollback' ? 'Rolled back' : 'Deployed'}
+          {capitalize(doneVerb(build))}
         </Badge>
       )
     case 'failed':

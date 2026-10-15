@@ -504,7 +504,12 @@ func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router,
 		DockerHost: "unix://" + sock,
 		SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
 	}
+	targets, err := webhook.LoadTargets(cfg.AppsFile)
+	if err != nil {
+		return nil, err
+	}
 	opts := deploy.Options{
+		Targets: targets,
 		Dir:     filepath.Join(dataDir, "deploys"),
 		Steps:   steps,
 		Runtime: steps,

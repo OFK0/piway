@@ -304,6 +304,11 @@ deploys are off (no Docker daemon).
 | `POST /api/v1/builds/{id}/cancel` | `202 {"status":"cancelling"}`; `409` if it already finished; `404`. |
 | `GET /api/v1/apps` | `{"apps": [App…]}`, by name: every app that has been built. |
 | `POST /api/v1/apps/{name}/redeploy` | `202` with the queued `Build`: a fresh build of the commit that is live now (`"pusher":"dashboard"`); `404` if the app has no successful build. |
+| `POST /api/v1/apps/{name}/deploy` | Optional body `{"commit": "<full SHA>"}`. `202` with the queued `Build` (`"pusher":"api"`): the newest commit of the app's branch (asked of the remote with `git ls-remote`), or that commit. `404` if the app was never built; `400` for a commit that is not a full SHA; `502` if the remote cannot be asked. |
+| `POST /api/v1/deploys` | Body `{"repo": "owner/name", "branch": "main", "commit": optional}`: the same for a repository branch in `apps.yaml`, deployed before or not (cloned from GitHub unless a push gave another URL). `404` if it is not in `apps.yaml`. |
+| `GET /api/v1/targets` | `{"targets": [{"repo", "branch", "app"}…]}`: the branches in `apps.yaml`; `app` once one was built. |
+| `POST /api/v1/apps/{name}/restart` | `202` with the queued `Build` (`"kind":"restart"`): a fresh container of the live version, health-checked and switched to without downtime, no rebuild. `404` if the app never ran. |
+| `GET /api/v1/apps/{name}/logs` | `?lines=` (1 to 5000, default 100). The last lines of the running container's stdout and stderr, with timestamps, as `text/plain`. `404` for an unknown app; `409` for a static site or when no container runs. |
 | `POST /api/v1/apps/{name}/rollback` | `202` with the queued rollback `Build` (`"kind":"rollback"`, `"rollback_of"`); `409` if the app has no earlier successful build; `404` if it was never deployed. |
 
 ```json
@@ -323,7 +328,9 @@ deploys are off (no Docker daemon).
 }
 ```
 
-`kind` is `"rollback"` for a rollback (absent for a push).
+`kind` is `"rollback"` for a rollback, `"restart"` for a restart, and
+absent for a build; `pusher` is the GitHub user for a push, `dashboard`
+for a redeploy and `api` for a deploy through the API or MCP.
 `state` is `queued`, `running`, `succeeded`, `failed` or `cancelled`;
 `error` explains the last two. `app` and `image` appear once known. A
 static site has no `image`; its `site` is the id of the build whose copy

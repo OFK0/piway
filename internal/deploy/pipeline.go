@@ -42,6 +42,11 @@ type Options struct {
 	Keep    int                     // finished builds kept with their logs; default 100
 	Runtime Runtime                 // optional: live container state for Apps
 	AppURL  func(app string) string // optional: where users reach an app
+	// Targets are the repository branches in apps.yaml, which DeployNow
+	// may deploy before any push.
+	Targets []webhook.Target
+	// ResolveHead finds a branch's newest commit; default git ls-remote.
+	ResolveHead func(ctx context.Context, cloneURL, branch string) (string, error)
 	// OnFinish, if set, runs when a build ends, with p's lock held: it
 	// must return quickly and not call back into the Pipeline.
 	OnFinish func(Build)
@@ -243,6 +248,9 @@ func (p *Pipeline) run(parent context.Context, id string) {
 	case err == nil && b.Kind == KindRollback:
 		fmt.Fprintf(log, "\n==> Rolled %s back to %s\n", b.App, b.Commit)
 		p.finish(b, Succeeded, "")
+	case err == nil && b.Kind == KindRestart:
+		fmt.Fprintf(log, "\n==> Restarted %s at %s\n", b.App, b.Commit)
+		p.finish(b, Succeeded, "")
 	case err == nil:
 		fmt.Fprintf(log, "\n==> Deployed %s from %s\n", b.App, b.Commit)
 		p.finish(b, Succeeded, "")
@@ -268,7 +276,7 @@ type result struct {
 
 // steps runs the build and reports what it learned along the way.
 func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (result, error) {
-	if b.Kind == KindRollback {
+	if b.released() {
 		return p.rollbackSteps(ctx, b, out)
 	}
 	var res result
@@ -353,7 +361,8 @@ func (p *Pipeline) siteSteps(ctx context.Context, m *manifest.Manifest, b Build,
 	return b.Site, nil
 }
 
-// rollbackSteps serves an earlier build again: its image, or its site.
+// rollbackSteps serves a build's image or site again: an earlier one for a
+// rollback, the current one for a restart.
 func (p *Pipeline) rollbackSteps(ctx context.Context, b Build, out io.Writer) (result, error) {
 	res := result{app: b.App, image: b.Image, site: b.Site}
 	m, err := manifest.Load(p.store.manifestPath(b.RollbackOf))
@@ -362,7 +371,7 @@ func (p *Pipeline) rollbackSteps(ctx context.Context, b Build, out io.Writer) (r
 	}
 	if b.Site != "" {
 		site := p.siteDir(m.Name, b.Site)
-		fmt.Fprintf(out, "==> Rolling %s back to the site of build %s (commit %s)\n", m.Name, b.RollbackOf, b.Commit)
+		fmt.Fprintf(out, "==> %s the site of build %s (commit %s)\n", releaseVerb(b, m.Name), b.RollbackOf, b.Commit)
 		if _, err := os.Stat(site); err != nil {
 			return res, fmt.Errorf("the site of build %s no longer exists (piway keeps the last %d per app)", b.Site, keepSites)
 		}
@@ -371,7 +380,7 @@ func (p *Pipeline) rollbackSteps(ctx context.Context, b Build, out io.Writer) (r
 		}
 		return res, nil
 	}
-	fmt.Fprintf(out, "==> Rolling %s back to %s (build %s, commit %s)\n", m.Name, b.Image, b.RollbackOf, b.Commit)
+	fmt.Fprintf(out, "==> %s %s (build %s, commit %s)\n", releaseVerb(b, m.Name), b.Image, b.RollbackOf, b.Commit)
 	if err := p.opts.Steps.Release(ctx, m, b, out); err != nil {
 		return res, fmt.Errorf("release: %w", err)
 	}
@@ -629,7 +638,7 @@ func (p *Pipeline) Apps(ctx context.Context) ([]App, error) {
 		}
 		copyB := *b
 		a.Last = &copyB
-		if b.Kind != KindRollback {
+		if !b.released() {
 			a.Repo, a.Branch = b.Repo, b.Branch
 		}
 		if b.State == Succeeded {
@@ -670,7 +679,7 @@ func (p *Pipeline) Redeploy(app string) (Build, error) {
 		return Build{}, ErrNotFound
 	}
 	src := live
-	if live.Kind == KindRollback {
+	if live.released() {
 		src = p.builds[live.RollbackOf]
 		if src == nil {
 			return Build{}, fmt.Errorf("deploy: build %s is gone", live.RollbackOf)

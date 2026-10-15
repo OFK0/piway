@@ -11,7 +11,7 @@ import (
 
 // Tools are the tools piway offers, in the order clients list them.
 func Tools() []Tool {
-	return []Tool{getStatus()}
+	return []Tool{getStatus(), listApps(), deployTool(), restartApp(), rollbackApp(), tailLogs()}
 }
 
 // noArgs is the schema of a tool without arguments.

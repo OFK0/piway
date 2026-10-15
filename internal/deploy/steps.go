@@ -330,3 +330,31 @@ func (s ExecSteps) Containers(ctx context.Context) (map[string]Container, error)
 	}
 	return out, nil
 }
+
+// Logs returns the last lines of the container that serves app.
+func (s ExecSteps) Logs(ctx context.Context, app string, lines int) (string, error) {
+	all, err := s.Docker.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	var fallback string
+	for _, c := range all {
+		if c.App() != app || c.State != "running" {
+			continue
+		}
+		fallback = c.ID
+		d, err := s.Docker.Details(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		for _, port := range d.Ports {
+			if s.Router != nil && s.Router.Target(app) == fmt.Sprintf("http://127.0.0.1:%d", port) {
+				return s.Docker.Logs(ctx, c.ID, lines)
+			}
+		}
+	}
+	if fallback == "" {
+		return "", fmt.Errorf("%w: no container of %s is running", ErrNotRunning, app)
+	}
+	return s.Docker.Logs(ctx, fallback, lines)
+}

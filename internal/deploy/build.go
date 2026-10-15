@@ -64,17 +64,24 @@ func (b *Build) artifact() string {
 }
 
 // key groups builds that replace each other: the same branch of the same
-// repository (GitHub names are case-insensitive). Rollbacks of an app
-// replace each other, not pushes.
+// repository (GitHub names are case-insensitive). Rollbacks and restarts
+// of an app replace each other, not pushes.
 func (b *Build) key() string {
-	if b.Kind == KindRollback {
-		return "rollback:" + b.App
+	if b.released() {
+		return "release:" + b.App
 	}
 	return strings.ToLower(b.Repo) + "@" + b.Branch
 }
 
-// KindRollback marks a build that re-releases an earlier image.
-const KindRollback = "rollback"
+// Kinds of builds that release an existing image or site instead of
+// building one.
+const (
+	KindRollback = "rollback" // an earlier version
+	KindRestart  = "restart"  // the version that runs now, as a fresh container
+)
+
+// released reports whether b re-releases a version built before.
+func (b *Build) released() bool { return b.Kind == KindRollback || b.Kind == KindRestart }
 
 // ErrNotFound is returned for an unknown build id.
 var ErrNotFound = errors.New("deploy: no such build")
