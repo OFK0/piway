@@ -30,3 +30,6 @@ export function duration(fromIso: string, toIso: string): string {
 }
 
 export const shortSha = (sha: string) => sha.slice(0, 7)
+
+/** A Go duration without zero parts: "5m0s" → "5m", "1h0m0s" → "1h", "30s" stays. */
+export const shortDuration = (d: string) => d.replace(/([hm])0s$/, '$1').replace(/h0m$/, 'h')

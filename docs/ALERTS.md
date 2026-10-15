@@ -1,9 +1,9 @@
 # Alerts
 
 piway watches its own metrics and deploys, and says when something goes
-wrong and when it is fine again. Alerts are logged and listed by
-[`GET /api/v1/alerts`](API.md#get-apiv1alerts); push notifications to a
-phone or browser follow in #30.
+wrong and when it is fine again: in its log, in the dashboard (Settings),
+by [`GET /api/v1/alerts`](API.md#get-apiv1alerts), and as
+[push notifications](#push-notifications) on your phone or computer.
 
 ## Built-in rules
 
@@ -73,6 +73,41 @@ and a breach while clearing just returns to firing silently.
 A pending alert whose series disappears (an unmounted disk) is dropped; a
 firing one stays until its series is seen to be fine. Alert state lives
 in memory: after a restart, conditions that still hold fire again.
+
+## Push notifications
+
+Turn them on in the dashboard: **Settings → Notifications → Notify this
+device**, on every phone or computer that should get alerts. "Send a
+test" checks the whole path.
+
+- **HTTPS is required**: browsers only allow notifications on secure
+  pages. Open piway through Tailscale ([REMOTE.md](REMOTE.md)), or on the
+  Pi itself at `localhost`.
+- **iPhone and iPad** (iOS 16.4 or later): only web apps on the Home
+  Screen get notifications. In Safari tap Share → Add to Home Screen,
+  open piway from the new icon, sign in, then turn notifications on.
+- Notifications arrive with the dashboard closed: a small service worker
+  (`/sw.js`) shows them and opens the dashboard when tapped.
+- A resolved alert replaces its firing notification on the device, and
+  says it is resolved.
+
+How it works, with no account anywhere: each browser gives piway a
+subscription from its own push service (Google's for Chrome and Android,
+Mozilla's, Apple's, Microsoft's). piway encrypts every message for that
+browser alone (RFC 8291), signs the request with its own key (VAPID,
+RFC 8292) and posts it to the push service, which only relays it and
+cannot read it.
+
+- piway's key pair is made on first start, in `<data_dir>/push/vapid.json`.
+  Deleting it makes every device subscribe again.
+- Subscriptions are kept in `<data_dir>/push/subscriptions.json`. One the
+  push service reports gone (the browser unsubscribed or was reset) is
+  removed at the next send.
+- piway only sends to the push services above (an allowlist), and never
+  follows redirects, so a subscription cannot make it contact anything
+  else.
+- `push_contact` ([CONFIG.md](CONFIG.md)) is the contact that push
+  services see in the signed request; set your own `mailto:` if you like.
 
 ## Metrics
 

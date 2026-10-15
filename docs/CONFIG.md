@@ -42,6 +42,7 @@ The output is itself a valid config file.
 | `proxy_tls` | `PIWAY_PROXY_TLS` | `-proxy-tls` | `true` | Serve apps over HTTPS, with certificates from Caddy. `false` serves plain HTTP. |
 | `caddy_admin` | `PIWAY_CADDY_ADMIN` | `-caddy-admin` | `"localhost:2019"` | Caddy's admin API. |
 | `alerts_file` | `PIWAY_ALERTS_FILE` | `-alerts-file` | `~/.config/piway/alerts.yaml` | Alert rules. Missing means the built-in rules. See [ALERTS.md](ALERTS.md). |
+| `push_contact` | `PIWAY_PUSH_CONTACT` | `-push-contact` | `"https://github.com/OFK0/piway"` | A `mailto:` or `https:` URL in the signed requests to push services, where they could reach the sender. See [ALERTS.md](ALERTS.md#push-notifications). |
 | `password_file` | `PIWAY_PASSWORD_FILE` | `-password-file` | `~/.config/piway/password` | The dashboard password's argon2id hash, written by `-set-password`. See [Dashboard password](#dashboard-password). |
 
 The pattern is the same for every setting: the env var is `PIWAY_` plus the

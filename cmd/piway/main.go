@@ -29,6 +29,7 @@ import (
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/history"
 	"github.com/ofk0/piway/internal/mdns"
+	"github.com/ofk0/piway/internal/push"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/router"
 	"github.com/ofk0/piway/internal/server"
@@ -103,6 +104,11 @@ func run(cfg config.Config) error {
 		return err
 	}
 	ag.OnPublish(func(s *agent.Snapshot) { alerts.Observe(recorder.Points(nil, s), s.Time) })
+	notifier, err := openPush(cfg, alerts, log)
+	if err != nil {
+		return err
+	}
+	go notifier.Run(ctx)
 
 	hist, err := openHistory(cfg, log)
 	if err != nil {
@@ -194,7 +200,7 @@ func run(cfg config.Config) error {
 		}
 	}()
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard, Alerts: alerts,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard, Alerts: alerts, Push: notifier,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -243,6 +249,30 @@ func openAlerts(cfg config.Config, log *slog.Logger) (*alert.Engine, error) {
 	})
 	log.Info("alerts on", "rules", len(rules.Rules), "deploy_failures", rules.DeployFailures, "file", cfg.AlertsFile)
 	return e, nil
+}
+
+// openPush sets up Web Push and sends every alert that fires or resolves
+// to the subscribed devices.
+func openPush(cfg config.Config, alerts *alert.Engine, log *slog.Logger) (*push.Service, error) {
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		dataDir = config.DefaultDataDir()
+	}
+	p, err := push.New(push.Options{Dir: filepath.Join(dataDir, "push"), Subject: cfg.PushContact, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	alerts.OnEvent(func(ev alert.Event) {
+		m := push.Message{Title: ev.Rule, Body: ev.Summary, Tag: "alert:" + ev.Rule + ":" + ev.Series, URL: "/", Urgent: true}
+		if ev.State == alert.Resolved {
+			m.Title, m.Urgent = "Resolved: "+ev.Rule, false
+		}
+		if ev.Rule == alert.DeployRule {
+			m.URL = "/apps"
+		}
+		p.Notify(m)
+	})
+	return p, nil
 }
 
 // openAuth sets up sign-in. Sessions are kept next to the metrics history.

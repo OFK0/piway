@@ -75,6 +75,7 @@ changes that span the whole repository.
 | `mdns` | `internal/mdns` (app names on the LAN) |
 | `auth` | `internal/auth` (sign-in, sessions) |
 | `alert` | `internal/alert`, `docs/ALERTS.md` (alert rules) |
+| `push` | `internal/push`, `web/public/sw.js` (Web Push) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |

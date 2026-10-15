@@ -33,6 +33,12 @@ type Deps struct {
 	// Auth guards the API; nil leaves it open (tests).
 	Auth   *auth.Auth
 	Alerts Alerts
+	Push   Push
+}
+
+// Push registers the Web Push API (internal/push).
+type Push interface {
+	Routes(mux *http.ServeMux, protect func(http.Handler) http.Handler)
 }
 
 // New returns the root HTTP handler.
@@ -60,6 +66,9 @@ func New(d Deps) (http.Handler, error) {
 	api.Handle("GET /api/v1/stream", live)
 	api.HandleFunc("GET /api/v1/series", series(hist, time.Now))
 	api.HandleFunc("GET /api/v1/alerts", alerts(d.Alerts))
+	if d.Push != nil {
+		d.Push.Routes(api, func(h http.Handler) http.Handler { return h }) // api is protected as a whole
+	}
 	buildRoutes(api, d.Builds)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,
