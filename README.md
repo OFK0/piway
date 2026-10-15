@@ -90,6 +90,16 @@ with `confirm: true`, which Claude sets when you asked for it. The token
 can do what any API token can and nothing more. Details:
 [docs/MCP.md](docs/MCP.md).
 
+## Check an installation
+
+```sh
+piway doctor                                # service, Docker, Caddy, disk, clock…
+sudo ~/.local/bin/piway doctor --security   # the steps in docs/HARDENING.md
+```
+
+Each problem comes with the command that fixes it. `-json` prints the
+results for scripts; the exit status is 1 when a check fails.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the issue, branch, commit

@@ -42,8 +42,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "mcp" {
-		os.Exit(runMCP(os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "mcp":
+			os.Exit(runMCP(os.Args[2:]))
+		case "doctor":
+			os.Exit(runDoctor(os.Args[2:]))
+		}
 	}
 	cfg, err := config.Load(os.Args[1:], os.LookupEnv, config.DefaultPath(), os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {
