@@ -33,7 +33,7 @@ export function NoApps() {
         </EmptyMedia>
         <EmptyTitle>No apps yet</EmptyTitle>
         <EmptyDescription>
-          Add a piway.yaml to a repository, list it in apps.yaml and push: the app appears here once it is built.
+          Add a piway.yaml to a repository, add the repository above and push: the app appears here once it is built.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>

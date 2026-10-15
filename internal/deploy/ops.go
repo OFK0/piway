@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ofk0/piway/internal/webhook"
 )
 
 // releaseVerb starts a re-release's log line.
@@ -60,12 +62,21 @@ type Target struct {
 	App    string `json:"app,omitempty"`
 }
 
+// configured returns the current deploy targets; none without a source.
+func (p *Pipeline) configured() []webhook.Target {
+	if p.opts.Targets == nil {
+		return nil
+	}
+	return p.opts.Targets.Targets()
+}
+
 // Targets lists the configured repository branches (apps.yaml).
 func (p *Pipeline) Targets() []Target {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	out := make([]Target, 0, len(p.opts.Targets))
-	for _, t := range p.opts.Targets {
+	configured := p.configured()
+	out := make([]Target, 0, len(configured))
+	for _, t := range configured {
 		tt := Target{Repo: t.Repo, Branch: t.Branch}
 		for i := len(p.order) - 1; i >= 0; i-- {
 			b := p.builds[p.order[i]]
@@ -146,7 +157,7 @@ func (p *Pipeline) target(r DeployRequest) (repo, branch, cloneURL string, err e
 		}
 		return "", "", "", fmt.Errorf("%w: no build of app %q yet; deploy its repo and branch instead", ErrUnknownTarget, r.App)
 	}
-	for _, t := range p.opts.Targets {
+	for _, t := range p.configured() {
 		if strings.EqualFold(t.Repo, r.Repo) && t.Branch == r.Branch {
 			cloneURL := "https://github.com/" + t.Repo + ".git"
 			for i := len(p.order) - 1; i >= 0; i-- { // a URL seen in a push wins

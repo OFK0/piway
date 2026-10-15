@@ -69,7 +69,7 @@ type Deployer interface {
 // Handler serves POST /api/v1/webhooks/github.
 type Handler struct {
 	secret   []byte
-	targets  []Target
+	targets  TargetSource
 	deployer Deployer
 	log      *slog.Logger
 	seen     *recent
@@ -77,7 +77,7 @@ type Handler struct {
 
 // New returns a handler. An empty secret disables webhooks: every delivery
 // is answered 503, so a misconfigured piway never deploys unsigned pushes.
-func New(secret string, targets []Target, d Deployer, log *slog.Logger) *Handler {
+func New(secret string, targets TargetSource, d Deployer, log *slog.Logger) *Handler {
 	return &Handler{secret: []byte(secret), targets: targets, deployer: d, log: log, seen: newRecent(1000)}
 }
 
@@ -203,7 +203,7 @@ func (h *Handler) push(w http.ResponseWriter, r *http.Request, body []byte) {
 }
 
 func (h *Handler) wanted(repo, branch string) bool {
-	for _, t := range h.targets {
+	for _, t := range h.targets.Targets() {
 		if strings.EqualFold(t.Repo, repo) && t.Branch == branch {
 			return true
 		}

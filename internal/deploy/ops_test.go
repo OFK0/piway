@@ -66,7 +66,7 @@ func TestDeployNow(t *testing.T) {
 		return strings.Repeat("c", 40), nil
 	}
 	targets := []webhook.Target{{Repo: "OFK0/guestbook", Branch: "main"}, {Repo: "OFK0/blog", Branch: "main"}}
-	h := start(t, t.TempDir(), Options{Targets: targets, ResolveHead: resolve})
+	h := start(t, t.TempDir(), Options{Targets: webhook.StaticTargets(targets), ResolveHead: resolve})
 	ctx := context.Background()
 
 	// A configured branch that was never built: clone from GitHub.

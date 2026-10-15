@@ -43,8 +43,8 @@ type Options struct {
 	Runtime Runtime                 // optional: live container state for Apps
 	AppURL  func(app string) string // optional: where users reach an app
 	// Targets are the repository branches in apps.yaml, which DeployNow
-	// may deploy before any push.
-	Targets []webhook.Target
+	// may deploy before any push. It is asked on every use, so it may change.
+	Targets webhook.TargetSource
 	// ResolveHead finds a branch's newest commit; default git ls-remote.
 	ResolveHead func(ctx context.Context, cloneURL, branch string) (string, error)
 	// OnFinish, if set, runs when a build ends, with p's lock held: it
