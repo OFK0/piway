@@ -3,6 +3,7 @@ import { useCallback } from 'react'
 
 import { DeploysDisabledError, fetchApps, type AppInfo } from '@/api'
 import { AppActions } from '@/components/app-actions'
+import { AppAddress } from '@/components/app-address'
 import { AppShell } from '@/components/app-shell'
 import { AppStatus, isBusy } from '@/components/app-status'
 import { DeploysOff, NoApps } from '@/components/deploys-off'
@@ -78,9 +79,7 @@ function AppRow({ app, now, onChange }: { app: AppInfo; now: number; onChange: (
                 Latest build: {app.last.state}
               </a>
             )}
-            <span>
-              127.0.0.1:<span className="tabular-nums">{app.port}</span>
-            </span>
+            <AppAddress app={app} />
           </div>
           <AppActions app={app} busy={isBusy(app)} onDone={onChange} size="sm" />
         </CardContent>

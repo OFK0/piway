@@ -25,3 +25,10 @@
 # retention_raw: 24h
 # retention_1m: 7d
 # retention_1h: 365d
+
+# Publish each app at <name>.<proxy_domain> through Caddy (docs/PROXY.md).
+# "" disables it.
+# proxy_domain: ""
+# proxy_listen: ":8443"
+# proxy_tls: true
+# caddy_admin: "localhost:2019"

@@ -147,6 +147,8 @@ export interface AppInfo {
   repo: string
   branch: string
   port: number
+  /** Set when apps are published through Caddy (proxy_domain). */
+  url?: string
   live?: Build
   last?: Build
   container?: { name: string; state: string; image: string; started_at?: string }

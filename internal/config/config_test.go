@@ -192,6 +192,12 @@ func TestInvalidValues(t *testing.T) {
 		{"positional arg", "", []string{"extra"}, nil, `unexpected argument "extra"`},
 		{"negative flush", "", []string{"-flush-interval", "-1s"}, nil, "between 0 and"},
 		{"flush too long", "flush_interval: 1h\n", nil, nil, "between 0 and 10m0s"},
+		{"domain with scheme", "proxy_domain: https://pi.local\n", nil, nil, "not a domain name"},
+		{"domain with port", "", []string{"-proxy-domain", "pi.local:8443"}, nil, "not a domain name"},
+		{"domain label ends with -", "", []string{"-proxy-domain", "pi-.local"}, nil, "not a domain name"},
+		{"listen without port", "", []string{"-proxy-listen", "8443"}, nil, "not a host:port"},
+		{"tls not a bool", "", nil, env{"PIWAY_PROXY_TLS": "maybe"}, "true or false"},
+		{"empty caddy admin", "", []string{"-caddy-admin", ""}, nil, "must not be empty"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -307,5 +313,19 @@ func TestWebhookSecretIsNeverPrinted(t *testing.T) {
 	}
 	if _, err := Load([]string{"-webhook-secret", "short"}, env{}.lookup, "", io.Discard); err == nil {
 		t.Error("a short webhook secret was accepted")
+	}
+}
+
+func TestProxySettings(t *testing.T) {
+	l := load(t, nil, env{}, "")
+	if l.ProxyDomain != "" || l.ProxyListen != ":8443" || !l.ProxyTLS || l.CaddyAdmin != "localhost:2019" {
+		t.Errorf("defaults: %+v", l.Config)
+	}
+	l = load(t, []string{"-proxy-domain", "Pi.Local.", "-proxy-tls=false", "-proxy-listen", "0.0.0.0:8000"}, env{}, "")
+	if l.ProxyDomain != "pi.local" || l.ProxyTLS || l.ProxyListen != "0.0.0.0:8000" {
+		t.Errorf("got domain %q tls %v listen %q", l.ProxyDomain, l.ProxyTLS, l.ProxyListen)
+	}
+	if l := load(t, []string{"-proxy-domain", "local"}, env{}, ""); l.ProxyDomain != "local" {
+		t.Errorf("a single label (<name>.local) rejected: %q", l.ProxyDomain)
 	}
 }

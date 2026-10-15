@@ -71,6 +71,7 @@ changes that span the whole repository.
 | `webhook` | `internal/webhook` (GitHub push webhooks) |
 | `pipeline` | `internal/deploy` (build pipeline) |
 | `router` | `internal/router` (stable app addresses) |
+| `caddy` | `internal/caddy`, `docs/PROXY.md` (app domains) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |

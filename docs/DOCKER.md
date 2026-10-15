@@ -13,7 +13,7 @@ a compromised piway, or a container escape, gets your user's rights, not
 root's.
 
 The trade-offs are small for piway: containers cannot bind ports below
-1024 (Caddy, not the apps, serves 80 and 443), and networking goes through
+1024 (Caddy, not the apps, faces clients: [PROXY.md](PROXY.md)), and networking goes through
 a user-space stack that is somewhat slower than the kernel bridge.
 
 ## Install (once, needs sudo)

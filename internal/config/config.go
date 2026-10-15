@@ -14,8 +14,10 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +40,12 @@ type Config struct {
 	WebhookSecret string
 	// AppsFile lists the repositories and branches that deploy (docs/DEPLOY.md).
 	AppsFile string
+	// ProxyDomain publishes each app at <name>.<ProxyDomain> through Caddy
+	// (docs/PROXY.md); empty disables it.
+	ProxyDomain string
+	ProxyListen string // where Caddy serves apps
+	ProxyTLS    bool
+	CaddyAdmin  string // Caddy's admin API
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -57,6 +65,9 @@ func Default() Config {
 		Retention1m:   7 * day,
 		Retention1h:   365 * day,
 		AppsFile:      DefaultAppsFile(),
+		ProxyListen:   ":8443",
+		ProxyTLS:      true,
+		CaddyAdmin:    "localhost:2019",
 	}
 }
 
@@ -258,7 +269,62 @@ var fields = []field{
 		get:   func(c *Config) string { return c.AppsFile },
 		quote: true,
 	},
+	{
+		key:   "proxy_domain",
+		usage: "serve each app at <name>.`domain` through Caddy, such as pi.local; empty disables it",
+		set: func(c *Config, s string) error {
+			s = strings.ToLower(strings.TrimSuffix(s, "."))
+			if s != "" && !domainPattern.MatchString(s) {
+				return fmt.Errorf("%q is not a domain name such as pi.local", s)
+			}
+			c.ProxyDomain = s
+			return nil
+		},
+		get: func(c *Config) string { return c.ProxyDomain },
+	},
+	{
+		key:   "proxy_listen",
+		usage: "`address` Caddy serves apps on; ports below 1024 need privileges",
+		set: func(c *Config, s string) error {
+			if _, port, err := net.SplitHostPort(s); err != nil || port == "" {
+				return fmt.Errorf("%q is not a host:port address such as :8443", s)
+			}
+			c.ProxyListen = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.ProxyListen },
+		quote: true,
+	},
+	{
+		key:   "proxy_tls",
+		usage: "serve apps over HTTPS (`bool`); certificates come from Caddy",
+		set: func(c *Config, s string) error {
+			b, err := strconv.ParseBool(s)
+			if err != nil {
+				return fmt.Errorf("must be true or false, got %q", s)
+			}
+			c.ProxyTLS = b
+			return nil
+		},
+		get: func(c *Config) string { return strconv.FormatBool(c.ProxyTLS) },
+	},
+	{
+		key:   "caddy_admin",
+		usage: "`address` of Caddy's admin API",
+		set: func(c *Config, s string) error {
+			if s == "" {
+				return errors.New("must not be empty")
+			}
+			c.CaddyAdmin = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.CaddyAdmin },
+		quote: true,
+	},
 }
+
+// domainPattern is one or more DNS labels: "local" serves <name>.local.
+var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 func retentionField(key, what string, ptr func(*Config) *time.Duration) field {
 	return field{

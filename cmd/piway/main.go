@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ofk0/piway/internal/agent"
+	"github.com/ofk0/piway/internal/caddy"
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/deploy"
 	"github.com/ofk0/piway/internal/docker"
@@ -130,7 +131,11 @@ func run(cfg config.Config) error {
 	}
 	routes := router.New(log)
 	defer routes.Close() // last: apps stay reachable until the end
-	pipeline, err := openPipeline(ctx, cfg, routes, log)
+	proxy, err := openProxy(ctx, cfg, routes, log)
+	if err != nil {
+		return err
+	}
+	pipeline, err := openPipeline(ctx, cfg, routes, proxy, log)
 	if err != nil {
 		return err
 	}
@@ -237,9 +242,38 @@ func (d logDeployer) Deploy(r webhook.Request) error {
 	return nil
 }
 
+// openProxy publishes the apps in routes at <name>.<proxy_domain> through
+// Caddy, or returns nil when proxy_domain is empty.
+func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, log *slog.Logger) (*caddy.Proxy, error) {
+	if cfg.ProxyDomain == "" {
+		log.Info("app domains disabled (proxy_domain is empty)")
+		return nil, nil
+	}
+	p, err := caddy.New(caddy.Options{
+		Admin:  cfg.CaddyAdmin,
+		Domain: cfg.ProxyDomain,
+		Listen: cfg.ProxyListen,
+		TLS:    cfg.ProxyTLS,
+		Logger: log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	changed := make(chan struct{}, 1)
+	routes.OnChange(func() {
+		select {
+		case changed <- struct{}{}:
+		default: // a sync is already due; it reads the latest routes
+		}
+	})
+	go p.Run(ctx, changed, routes.Ports, 30*time.Second)
+	log.Info("publishing apps through caddy", "domain", cfg.ProxyDomain, "listen", cfg.ProxyListen, "tls", cfg.ProxyTLS, "admin", cfg.CaddyAdmin)
+	return p, nil
+}
+
 // openPipeline starts the build pipeline if a Docker daemon is reachable,
 // and returns nil (deploys off) otherwise.
-func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router, log *slog.Logger) (*deploy.Pipeline, error) {
+func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router, proxy *caddy.Proxy, log *slog.Logger) (*deploy.Pipeline, error) {
 	sock, err := docker.SocketPath(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -258,12 +292,16 @@ func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router,
 		DockerHost: "unix://" + sock,
 		SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
 	}
-	p, err := deploy.New(deploy.Options{
+	opts := deploy.Options{
 		Dir:     filepath.Join(dataDir, "deploys"),
 		Steps:   steps,
 		Runtime: steps,
 		Logger:  log,
-	})
+	}
+	if proxy != nil {
+		opts.AppURL = proxy.URL
+	}
+	p, err := deploy.New(opts)
 	if err != nil {
 		return nil, fmt.Errorf("deploys: %w", err)
 	}

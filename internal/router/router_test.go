@@ -163,3 +163,34 @@ func TestSetErrors(t *testing.T) {
 		t.Error("route still there after Remove")
 	}
 }
+
+func TestOnChangeAndPorts(t *testing.T) {
+	blue, green := backend("blue"), backend("green")
+	defer blue.Close()
+	defer green.Close()
+	r := newRouter(t)
+	var changes atomic.Int32
+	r.OnChange(func() {
+		changes.Add(1)
+		r.Ports() // must not deadlock: called without the lock held
+	})
+	port := freePort(t)
+
+	if err := r.Set("web", port, blue.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Ports(); len(got) != 1 || got["web"] != port {
+		t.Errorf("Ports = %v, want web:%d", got, port)
+	}
+	if err := r.Set("web", port, green.URL); err != nil {
+		t.Fatal(err)
+	}
+	if n := changes.Load(); n != 1 {
+		t.Errorf("%d changes after a new route and a switch, want 1", n)
+	}
+	r.Remove("web")
+	r.Remove("web")
+	if n := changes.Load(); n != 2 || len(r.Ports()) != 0 {
+		t.Errorf("%d changes, ports %v after removing; want 2 and none", n, r.Ports())
+	}
+}
