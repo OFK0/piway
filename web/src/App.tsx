@@ -13,6 +13,7 @@ const DesignSystemPage = lazy(() => import('@/pages/design-system'))
 const AppsPage = lazy(() => import('@/pages/apps'))
 const AppDetailPage = lazy(() => import('@/pages/app-detail'))
 const BuildPage = lazy(() => import('@/pages/build'))
+const SettingsPage = lazy(() => import('@/pages/settings'))
 
 // Links are plain <a href>, and piway serves index.html for unknown paths
 // (#12), so routing is just reading the path once.
@@ -34,6 +35,7 @@ function Page() {
       {route.page === 'apps' && <AppsPage />}
       {route.page === 'app' && <AppDetailPage name={route.name} />}
       {route.page === 'build' && <BuildPage id={route.id} />}
+      {route.page === 'settings' && <SettingsPage />}
       {route.page === 'not-found' && <NotFound />}
     </Suspense>
   )

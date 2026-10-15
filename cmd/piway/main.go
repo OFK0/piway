@@ -181,6 +181,11 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := guard.Close(); err != nil {
+			log.Error("save API tokens", "err", err)
+		}
+	}()
 	handler, err := server.New(server.Deps{
 		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard,
 	})
@@ -223,6 +228,7 @@ func openAuth(cfg config.Config, log *slog.Logger) (*auth.Auth, error) {
 	a, err := auth.New(auth.Options{
 		PasswordFile: cfg.PasswordFile,
 		SessionsFile: filepath.Join(dataDir, "sessions.json"),
+		TokensFile:   filepath.Join(dataDir, "tokens.json"),
 		Logger:       log,
 	})
 	if err != nil {

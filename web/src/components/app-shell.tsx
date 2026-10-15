@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 const nav = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
   { href: '/apps', label: 'Apps', match: (p: string) => p.startsWith('/apps') || p.startsWith('/builds') },
+  { href: '/settings', label: 'Settings', match: (p: string) => p === '/settings' },
 ]
 
 // Only with a password: in local mode there is nothing to sign out of.
@@ -38,9 +39,10 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 md:px-6">
           <a href="/" aria-label="piway overview">
-            <Logo />
+            <Logo mark className="sm:hidden" />
+            <Logo className="hidden sm:block" />
           </a>
-          <nav aria-label="Main" className="ml-4 flex items-center gap-1">
+          <nav aria-label="Main" className="ml-2 flex items-center gap-1 sm:ml-4">
             {nav.map((item) => {
               const current = item.match(window.location.pathname)
               return (

@@ -55,6 +55,7 @@ type env struct {
 	a        *Auth
 	pwFile   string
 	sessions string
+	tokens   string
 	now      time.Time
 	mu       sync.Mutex
 }
@@ -74,7 +75,7 @@ func newEnv(t *testing.T, withPassword bool) *env {
 
 func (e *env) open(t *testing.T) *Auth {
 	t.Helper()
-	a, err := New(Options{PasswordFile: e.pwFile, SessionsFile: e.sessions, now: e.clock})
+	a, err := New(Options{PasswordFile: e.pwFile, SessionsFile: e.sessions, TokensFile: e.tokens, now: e.clock})
 	if err != nil {
 		t.Fatal(err)
 	}

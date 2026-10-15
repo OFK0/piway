@@ -11,9 +11,10 @@ describe('matchRoute', () => {
     assert.deepEqual(matchRoute('/apps/guestbook'), { page: 'app', name: 'guestbook' })
     assert.deepEqual(matchRoute('/builds/20261014T185759Z-b691d31'), { page: 'build', id: '20261014T185759Z-b691d31' })
     assert.deepEqual(matchRoute('/design-system'), { page: 'design-system' })
+    assert.deepEqual(matchRoute('/settings'), { page: 'settings' })
   })
   it('rejects unknown paths', () => {
-    for (const p of ['/nope', '/builds', '/apps/a/b', '/design-system/x']) {
+    for (const p of ['/nope', '/builds', '/apps/a/b', '/design-system/x', '/settings/x']) {
       assert.deepEqual(matchRoute(p), { page: 'not-found' }, p)
     }
   })
