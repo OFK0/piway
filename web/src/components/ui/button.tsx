@@ -7,16 +7,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground enabled:hover:bg-primary/85",
-        brand: "bg-brand text-brand-foreground enabled:hover:bg-brand/90",
+        default: "bg-primary text-primary-foreground enabled:hover:bg-primary/85 disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
+        brand: "bg-brand text-brand-foreground enabled:hover:bg-brand/90 disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         outline:
           "border-border bg-background enabled:hover:bg-muted enabled:hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:enabled:hover:bg-input/50",
         secondary:
-          "bg-secondary text-secondary-foreground enabled:hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+          "bg-secondary text-secondary-foreground enabled:hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         ghost:
           "enabled:hover:bg-muted enabled:hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:enabled:hover:bg-muted/50",
         destructive:
-          "bg-destructive/10 text-destructive enabled:hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:enabled:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+          "bg-destructive/10 text-destructive enabled:hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:enabled:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40 disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         link: "text-primary underline-offset-4 enabled:hover:underline",
       },
       size: {
