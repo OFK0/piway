@@ -91,6 +91,26 @@ test" checks the whole path.
 - A resolved alert replaces its firing notification on the device, and
   says it is resolved.
 
+### Deploys
+
+With `notify_deploys` ([CONFIG.md](CONFIG.md)) at its default, `all`,
+every finished deploy sends one notification:
+
+| Event | Notification | Opens |
+| ----- | ------------ | ----- |
+| A deploy succeeds | **Deployed pinboard** · commit 740f82f · in 1 min 6 s · pinboard.local:8443 | the build's log |
+| A rollback or restart succeeds | **Rolled back pinboard**, **Restarted pinboard** | the build's log |
+| A deploy fails | **Deploy failed** · Deploy of pinboard failed: build: exit status 1 | Apps |
+
+Each repository branch has one tag, so on a device the newest
+notification about it replaces the one before: after a fix, "Deployed"
+replaces "Deploy failed". Cancelled builds send nothing.
+
+- `notify_deploys: failures` sends only failures, and "Resolved: Deploy
+  failed" with the next success.
+- `notify_deploys: off` sends none; failures still show as alerts in the
+  dashboard and the API.
+
 How it works, with no account anywhere: each browser gives piway a
 subscription from its own push service (Google's for Chrome and Android,
 Mozilla's, Apple's, Microsoft's). piway encrypts every message for that

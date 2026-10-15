@@ -52,6 +52,8 @@ type Config struct {
 	AlertsFile string
 	// PushContact is how push services can reach the operator (RFC 8292).
 	PushContact string
+	// NotifyDeploys is which deploys are pushed: all, failures or off.
+	NotifyDeploys string
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -77,6 +79,7 @@ func Default() Config {
 		PasswordFile:  DefaultPasswordFile(),
 		AlertsFile:    defaultConfigFile("alerts.yaml"),
 		PushContact:   "https://github.com/OFK0/piway",
+		NotifyDeploys: "all",
 	}
 }
 
@@ -378,6 +381,19 @@ var fields = []field{
 		},
 		get:   func(c *Config) string { return c.PushContact },
 		quote: true,
+	},
+	{
+		key:   "notify_deploys",
+		usage: "which deploys send a notification: all, failures or off (`mode`)",
+		set: func(c *Config, s string) error {
+			switch s {
+			case "all", "failures", "off":
+				c.NotifyDeploys = s
+				return nil
+			}
+			return fmt.Errorf("must be all, failures or off, got %q", s)
+		},
+		get: func(c *Config) string { return c.NotifyDeploys },
 	},
 }
 

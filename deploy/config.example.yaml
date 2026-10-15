@@ -29,6 +29,10 @@
 # Alert rules (docs/ALERTS.md). A missing file means the built-in rules.
 # alerts_file: "~/.config/piway/alerts.yaml"
 
+# Which deploys send a push notification: all, failures or off
+# (docs/ALERTS.md).
+# notify_deploys: all
+
 # The dashboard password's hash, written by "piway -set-password". Until one
 # is set, piway answers only this machine (docs/CONFIG.md).
 # password_file: "~/.config/piway/password"
