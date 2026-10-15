@@ -3,6 +3,12 @@ import type { ReactNode } from 'react'
 import { Logo } from '@/components/logo'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
+
+const nav = [
+  { href: '/', label: 'Overview', match: (p: string) => p === '/' },
+  { href: '/apps', label: 'Apps', match: (p: string) => p.startsWith('/apps') || p.startsWith('/builds') },
+]
 
 // Page frame: a hairline header with the brand and global controls, a
 // left-aligned content column, and a quiet footer.
@@ -20,6 +26,24 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
           <a href="/" aria-label="piway overview">
             <Logo />
           </a>
+          <nav aria-label="Main" className="ml-4 flex items-center gap-1">
+            {nav.map((item) => {
+              const current = item.match(window.location.pathname)
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  aria-current={current ? 'page' : undefined}
+                  className={cn(
+                    'px-2 py-1 type-label text-muted-foreground underline-offset-8 hover:text-foreground',
+                    current && 'text-foreground underline decoration-brand decoration-2',
+                  )}
+                >
+                  {item.label}
+                </a>
+              )
+            })}
+          </nav>
           <div className="ml-auto flex items-center gap-2">
             {props.actions}
             <ThemeToggle />

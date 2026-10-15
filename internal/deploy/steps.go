@@ -299,3 +299,34 @@ func readEnvFile(path string) (map[string]string, error) {
 	}
 	return out, sc.Err()
 }
+
+// Containers returns each app's running container: the one its route
+// points at, else any running one.
+func (s ExecSteps) Containers(ctx context.Context) (map[string]Container, error) {
+	all, err := s.Docker.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]Container{}
+	for _, c := range all {
+		app := c.App()
+		if cur, ok := out[app]; ok && cur.State == "running" && c.State != "running" {
+			continue
+		}
+		d, err := s.Docker.Details(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		served := false
+		if s.Router != nil {
+			for _, port := range d.Ports {
+				served = s.Router.Target(app) == fmt.Sprintf("http://127.0.0.1:%d", port)
+			}
+		}
+		if _, ok := out[app]; ok && !served {
+			continue
+		}
+		out[app] = Container{Name: d.Name, State: d.State.Status, Image: d.Image, Started: d.State.StartedAt}
+	}
+	return out, nil
+}

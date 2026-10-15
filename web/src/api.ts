@@ -120,3 +120,62 @@ export async function fetchSeries(
   }
   return res.json() as Promise<SeriesResponse>
 }
+
+// --- Deploys (docs/API.md › Builds) ---------------------------------------
+
+export type BuildState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface Build {
+  id: string
+  app?: string
+  repo: string
+  branch: string
+  commit: string
+  pusher?: string
+  state: BuildState
+  kind?: 'rollback'
+  rollback_of?: string
+  image?: string
+  error?: string
+  queued_at: string
+  started_at?: string
+  finished_at?: string
+}
+
+export interface AppInfo {
+  name: string
+  repo: string
+  branch: string
+  port: number
+  live?: Build
+  last?: Build
+  container?: { name: string; state: string; image: string; started_at?: string }
+}
+
+/** Thrown when piway has no Docker daemon, so deploys are off (HTTP 503). */
+export class DeploysDisabledError extends Error {}
+
+async function deployJSON<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, init)
+  const body = await res.json().catch(() => null)
+  if (res.status === 503) throw new DeploysDisabledError(body?.error ?? 'Deploys are off.')
+  if (!res.ok) throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
+  return body as T
+}
+
+export const fetchApps = (signal?: AbortSignal) =>
+  deployJSON<{ apps: AppInfo[] }>('/api/v1/apps', { signal }).then((r) => r.apps)
+export const fetchBuilds = (signal?: AbortSignal) =>
+  deployJSON<{ builds: Build[] }>('/api/v1/builds', { signal }).then((r) => r.builds)
+export const fetchBuild = (id: string, signal?: AbortSignal) =>
+  deployJSON<Build>(`/api/v1/builds/${encodeURIComponent(id)}`, { signal })
+export const cancelBuild = (id: string) =>
+  deployJSON<unknown>(`/api/v1/builds/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+export const rollbackApp = (name: string) =>
+  deployJSON<Build>(`/api/v1/apps/${encodeURIComponent(name)}/rollback`, { method: 'POST' })
+export const redeployApp = (name: string) =>
+  deployJSON<Build>(`/api/v1/apps/${encodeURIComponent(name)}/redeploy`, { method: 'POST' })
+
+export function buildLogStreamURL(id: string, loc: { protocol: string; host: string } = window.location): string {
+  return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/api/v1/builds/${encodeURIComponent(id)}/log/stream`
+}

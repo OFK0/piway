@@ -35,6 +35,7 @@ type Options struct {
 	Logger  *slog.Logger
 	Timeout time.Duration // per build; default 30 minutes
 	Keep    int           // finished builds kept with their logs; default 100
+	Runtime Runtime       // optional: live container state for Apps
 
 	now func() time.Time
 }
@@ -459,4 +460,101 @@ func (p *Pipeline) Follow(id string) (past []byte, next <-chan []byte, stop func
 	ch := make(chan []byte)
 	close(ch)
 	return past, ch, func() {}, nil
+}
+
+// Runtime reports the containers that serve apps. ExecSteps implements it;
+// a nil Runtime leaves App.Container empty.
+type Runtime interface {
+	Containers(ctx context.Context) (map[string]Container, error)
+}
+
+// Container is what the apps page shows about an app's live container.
+type Container struct {
+	Name    string    `json:"name"`
+	State   string    `json:"state"` // running, exited, restarting, ...
+	Image   string    `json:"image"`
+	Started time.Time `json:"started_at,omitzero"`
+}
+
+// App is one deployed app as the dashboard lists it.
+type App struct {
+	Name      string     `json:"name"`
+	Repo      string     `json:"repo"`
+	Branch    string     `json:"branch"`
+	Port      int        `json:"port"`                // stable 127.0.0.1 address
+	Live      *Build     `json:"live,omitempty"`      // what it runs: its latest successful build or rollback
+	Last      *Build     `json:"last,omitempty"`      // the latest build of any outcome
+	Container *Container `json:"container,omitempty"` // nil if none is running
+}
+
+// Apps lists every app that has been built, by name, with what runs now.
+func (p *Pipeline) Apps(ctx context.Context) ([]App, error) {
+	p.mu.Lock()
+	byName := map[string]*App{}
+	var names []string
+	for _, id := range p.order { // oldest first, so later builds overwrite
+		b := p.builds[id]
+		if b.App == "" {
+			continue
+		}
+		a, ok := byName[b.App]
+		if !ok {
+			a = &App{Name: b.App, Port: HostPort(b.App)}
+			byName[b.App] = a
+			names = append(names, b.App)
+		}
+		copyB := *b
+		a.Last = &copyB
+		if b.Kind != KindRollback {
+			a.Repo, a.Branch = b.Repo, b.Branch
+		}
+		if b.State == Succeeded {
+			a.Live = &copyB
+		}
+	}
+	p.mu.Unlock()
+
+	var running map[string]Container
+	if p.opts.Runtime != nil {
+		var err error
+		if running, err = p.opts.Runtime.Containers(ctx); err != nil {
+			return nil, err
+		}
+	}
+	slices.Sort(names)
+	out := make([]App, 0, len(names))
+	for _, n := range names {
+		a := byName[n]
+		if c, ok := running[n]; ok {
+			a.Container = &c
+		}
+		out = append(out, *a)
+	}
+	return out, nil
+}
+
+// Redeploy queues a fresh build of the commit the app runs now: the same
+// as pushing it again. Useful after changing secrets.
+func (p *Pipeline) Redeploy(app string) (Build, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	live := p.liveLocked(app)
+	if live == nil {
+		return Build{}, ErrNotFound
+	}
+	src := live
+	if live.Kind == KindRollback {
+		src = p.builds[live.RollbackOf]
+		if src == nil {
+			return Build{}, fmt.Errorf("deploy: build %s is gone", live.RollbackOf)
+		}
+	}
+	b := &Build{
+		ID: p.newID(src.Commit), Repo: src.Repo, Branch: src.Branch, Commit: src.Commit,
+		CloneURL: src.CloneURL, Pusher: "dashboard", State: Queued, Queued: p.opts.now(),
+	}
+	if err := p.enqueueLocked(b); err != nil {
+		return Build{}, err
+	}
+	return *b, nil
 }

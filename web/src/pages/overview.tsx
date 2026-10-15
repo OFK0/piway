@@ -428,7 +428,9 @@ function TableCard(props: TableSpec & { rows: Row[] | null; loadingRows?: number
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="type-title">{props.title}</CardTitle>
+        <CardTitle>
+          <h2 className="type-title">{props.title}</h2>
+        </CardTitle>
         <CardDescription>{props.description}</CardDescription>
       </CardHeader>
       <CardContent>

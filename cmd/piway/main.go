@@ -259,9 +259,10 @@ func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router,
 		SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
 	}
 	p, err := deploy.New(deploy.Options{
-		Dir:    filepath.Join(dataDir, "deploys"),
-		Steps:  steps,
-		Logger: log,
+		Dir:     filepath.Join(dataDir, "deploys"),
+		Steps:   steps,
+		Runtime: steps,
+		Logger:  log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("deploys: %w", err)

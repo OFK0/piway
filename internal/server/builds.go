@@ -19,6 +19,8 @@ type Builds interface {
 	Cancel(id string) error
 	Follow(id string) (past []byte, next <-chan []byte, stop func(), err error)
 	Rollback(app string) (deploy.Build, error)
+	Redeploy(app string) (deploy.Build, error)
+	Apps(ctx context.Context) ([]deploy.App, error)
 }
 
 func buildRoutes(mux *http.ServeMux, b Builds) {
@@ -36,7 +38,9 @@ func buildRoutes(mux *http.ServeMux, b Builds) {
 	mux.HandleFunc("GET /api/v1/builds/{id}/log", h(buildLog))
 	mux.HandleFunc("GET /api/v1/builds/{id}/log/stream", h(streamBuildLog))
 	mux.HandleFunc("POST /api/v1/builds/{id}/cancel", h(cancelBuild))
+	mux.HandleFunc("GET /api/v1/apps", h(listApps))
 	mux.HandleFunc("POST /api/v1/apps/{name}/rollback", h(rollback))
+	mux.HandleFunc("POST /api/v1/apps/{name}/redeploy", h(redeploy))
 }
 
 func listBuilds(w http.ResponseWriter, _ *http.Request, b Builds) {
@@ -81,6 +85,28 @@ func cancelBuild(w http.ResponseWriter, r *http.Request, b Builds) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancelling"})
+}
+
+func listApps(w http.ResponseWriter, r *http.Request, b Builds) {
+	apps, err := b.Apps(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"apps": apps})
+}
+
+func redeploy(w http.ResponseWriter, r *http.Request, b Builds) {
+	build, err := b.Redeploy(r.PathValue("name"))
+	switch {
+	case errors.Is(err, deploy.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no app with that name is running a successful build")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, build)
+	}
 }
 
 func rollback(w http.ResponseWriter, r *http.Request, b Builds) {
