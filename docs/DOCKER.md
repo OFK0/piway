@@ -18,17 +18,33 @@ a user-space stack that is somewhat slower than the kernel bridge.
 
 ## Install (once, needs sudo)
 
-Tested on Raspberry Pi OS / Debian 13 (trixie), arm64. Either Debian's
-`docker.io` (Docker 26) or Docker CE from Docker's own repository (Docker
-29, `docker-ce` and `docker-ce-rootless-extras`) works; piway speaks API
-1.44, which both accept.
+Tested on Raspberry Pi OS / Debian 13 (trixie), arm64, with Docker CE 29
+from Docker's own repository. Install Docker CE, not Debian's `docker.io`
+package: on Debian 13 that is Docker 26, a series Docker no longer
+maintains (Debian only backports security fixes). piway speaks Engine API
+1.44, so `docker.io` would work, but you would miss years of fixes.
 
 ```sh
-# 1. Packages: Docker, the rootless helpers, and user-session D-Bus.
-#    Debian's packages:
-sudo apt install docker.io rootlesskit uidmap slirp4netns fuse-overlayfs dbus-user-session
-#    or, with Docker CE already installed from download.docker.com:
-sudo apt install uidmap slirp4netns dbus-user-session
+# 1. Docker's apt repository (as in Docker's install guide for Debian).
+sudo apt update
+sudo apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+sudo apt update
+
+#    Docker CE with BuildKit (buildx) and the rootless extras, plus the
+#    rootless helpers and user-session D-Bus.
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin \
+  docker-ce-rootless-extras uidmap slirp4netns dbus-user-session
 
 # 2. Turn off the root daemon that the package starts.
 sudo systemctl disable --now docker.service docker.socket
@@ -41,22 +57,21 @@ sudo loginctl enable-linger "$USER"
 Your user needs subordinate id ranges; Raspberry Pi OS creates them:
 
 ```sh
-grep "^$USER:" /etc/subuid /etc/subgid   # e.g. ofk:100000:65536 in both
+grep "^$USER:" /etc/subuid /etc/subgid   # e.g. pi:100000:65536 in both
 ```
 
 ## Set up rootless Docker (as your user, no sudo)
 
 ```sh
 dockerd-rootless-setuptool.sh check     # lists anything still missing
-dockerd-rootless-setuptool.sh install   # Docker CE: on $PATH
-# Debian docker.io: /usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install
+dockerd-rootless-setuptool.sh install
 systemctl --user enable --now docker
 ```
 
 The daemon's socket is `$XDG_RUNTIME_DIR/docker.sock`
-(`/run/user/1000/docker.sock`). Docker CE's setup tool also creates and
-selects a CLI context named `rootless`, so `docker` already talks to it;
-otherwise point the CLI at the socket:
+(`/run/user/1000/docker.sock`). The setup tool also creates and selects a
+CLI context named `rootless`, so `docker` already talks to it. If it does
+not, point the CLI at the socket:
 
 ```sh
 echo 'export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock' >> ~/.bashrc
