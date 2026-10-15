@@ -353,14 +353,20 @@ func (h *History) Query(name string, from, to time.Time, step time.Duration) (Re
 		return Result{}, errors.New("to must be after from")
 	}
 	span := to.Sub(from)
-	step = max(step, (span+MaxPoints-1)/MaxPoints, time.Second)
+	// An unaligned range can touch one more bucket than span/step.
+	// Reserve that bucket and round up to the precision used by Scan.
+	step = max(step, (span-1)/(MaxPoints-1)+1, time.Second)
 
 	res, src := h.pickTier(from, span, step)
+	unit := time.Millisecond
 	switch res {
 	case ResolutionMinute:
-		step = max(step, time.Minute).Truncate(time.Minute)
+		unit = time.Minute
 	case ResolutionHour:
-		step = max(step, time.Hour).Truncate(time.Hour)
+		unit = time.Hour
+	}
+	if rem := step % unit; rem != 0 && step <= time.Duration(math.MaxInt64)-(unit-rem) {
+		step += unit - rem
 	}
 	stepMs := step.Milliseconds()
 	match := matcher(name)

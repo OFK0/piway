@@ -323,3 +323,57 @@ func TestQueryRejectsEmptyRange(t *testing.T) {
 		t.Error("empty range accepted")
 	}
 }
+
+func TestQueryPointLimit(t *testing.T) {
+	tests := []struct {
+		name                 string
+		resolution           Resolution
+		span, interval, step time.Duration
+	}{
+		{"raw unaligned", ResolutionRaw, 1000 * time.Second, 100 * time.Millisecond, time.Second},
+		{"minute rounded down", ResolutionMinute, 7 * 24 * time.Hour, time.Minute, time.Minute},
+		{"hour rounded down", ResolutionHour, 90 * 24 * time.Hour, time.Hour, time.Hour},
+		{"maximum step", ResolutionHour, 90 * 24 * time.Hour, time.Hour, time.Duration(math.MaxInt64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := open(t, t.TempDir(), &clock{t: t0}, Retention{})
+			store := h.Raw()
+			if tt.resolution == ResolutionMinute {
+				store = h.Minute()
+			}
+			if tt.resolution == ResolutionHour {
+				store = h.Hour()
+			}
+			from := t0.Add(123 * time.Millisecond)
+			to := from.Add(tt.span)
+			for at := t0; at.Before(to); at = at.Add(tt.interval) {
+				points := []tsdb.Point{{Series: "cpu", Value: 7}}
+				if tt.resolution != ResolutionRaw {
+					points = rollupPoints(map[string]*agg{"cpu": {min: 7, max: 7, sum: 7, n: 1}})
+				}
+				if err := store.Append(at.UnixMilli(), points); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := query(t, h, "cpu", from, to, tt.step)
+			if r.Resolution != tt.resolution {
+				t.Fatalf("resolution = %s, want %s", r.Resolution, tt.resolution)
+			}
+			if r.Step < tt.step {
+				t.Errorf("step = %v, must not shrink requested %v", r.Step, tt.step)
+			}
+			if len(r.Series) != 1 {
+				t.Fatalf("series = %d, want 1", len(r.Series))
+			}
+			if n := len(r.Series[0].Points); n > MaxPoints {
+				t.Errorf("%d points at %v, want at most %d", n, r.Step, MaxPoints)
+			}
+			for _, p := range r.Series[0].Points {
+				if p.Avg != 7 || p.Min != 7 || p.Max != 7 {
+					t.Errorf("changed aggregate: %+v", p)
+				}
+			}
+		})
+	}
+}
