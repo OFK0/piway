@@ -288,7 +288,7 @@ the checks applied. Responses are JSON `{"status": …, "reason": …}`:
 | `400` | `rejected` | Unreadable payload. |
 | `401` | `rejected` | Missing or invalid signature. |
 | `413` | `rejected` | Body over 5 MiB. |
-| `503` | `disabled`, `error` | No `webhook_secret` set, or the deploy could not be queued. |
+| `503` | `disabled`, `error` | No `webhook_secret` set, or the deploy could not be queued. A queue failure leaves the delivery ID eligible for redelivery. |
 
 ## Builds
 

@@ -193,6 +193,7 @@ func (h *Handler) push(w http.ResponseWriter, r *http.Request, body []byte) {
 		Delivery: r.Header.Get("X-GitHub-Delivery"),
 	}
 	if err := h.deployer.Deploy(req); err != nil {
+		h.seen.remove(req.Delivery)
 		h.log.Error("queue deploy", "repo", req.Repo, "commit", req.Commit, "err", err)
 		reply(w, http.StatusServiceUnavailable, "error", err.Error())
 		return
@@ -236,4 +237,21 @@ func (c *recent) add(id string) bool {
 	c.ids[id] = struct{}{}
 	c.next = (c.next + 1) % len(c.ring)
 	return true
+}
+
+// remove releases a failed delivery so GitHub can redeliver it. Clear its
+// ring slot too, so that slot cannot later evict a successful retry.
+func (c *recent) remove(id string) {
+	if id == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.ids, id)
+	for i, old := range c.ring {
+		if old == id {
+			c.ring[i] = ""
+			break
+		}
+	}
 }

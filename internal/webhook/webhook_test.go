@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 const secret = "test-secret-0123456789"
@@ -260,5 +261,76 @@ func TestFormEncodedPayload(t *testing.T) {
 	newHandler(&recorder{}).ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("signature over the inner JSON accepted: %d", w.Code)
+	}
+}
+
+func TestDeployerFailureCanBeRetried(t *testing.T) {
+	rec := &recorder{err: errors.New("queue full")}
+	h := newHandler(rec)
+	body := pushBody("OFK0/guestbook", "refs/heads/main", "abc")
+	d := delivery{"push", "retry-id", sign(secret, body), body}
+	if code, _ := send(t, h, d); code != http.StatusServiceUnavailable {
+		t.Fatalf("first delivery: %d, want 503", code)
+	}
+	rec.err = nil
+	if code, resp := send(t, h, d); code != http.StatusAccepted {
+		t.Fatalf("retry: %d %+v, want 202 queued", code, resp)
+	}
+	if code, resp := send(t, h, d); code != http.StatusOK || resp.Status != "duplicate" {
+		t.Errorf("after success: %d %+v, want 200 duplicate", code, resp)
+	}
+	if len(rec.reqs) != 2 {
+		t.Errorf("%d queue attempts, want 2", len(rec.reqs))
+	}
+}
+
+func TestReplayCacheRetrySurvivesOldSlotEviction(t *testing.T) {
+	c := newRecent(3)
+	c.add("retry")
+	c.remove("retry")
+	c.add("retry")
+	c.add("other")
+	c.add("new") // wraps over the failed attempt's old slot
+	if c.add("retry") {
+		t.Error("successful retry forgotten when the failed slot was evicted")
+	}
+}
+
+type blockingDeployer struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (d *blockingDeployer) Deploy(Request) error {
+	close(d.entered)
+	<-d.release
+	return nil
+}
+
+func TestConcurrentReplayIsNotQueued(t *testing.T) {
+	d := &blockingDeployer{entered: make(chan struct{}), release: make(chan struct{})}
+	h := newHandler(d)
+	body := pushBody("OFK0/guestbook", "refs/heads/main", "abc")
+	del := delivery{"push", "in-flight", sign(secret, body), body}
+	finished := make(chan int, 1)
+	go func() { code, _ := send(t, h, del); finished <- code }()
+	defer func() {
+		close(d.release)
+		select {
+		case code := <-finished:
+			if code != http.StatusAccepted {
+				t.Errorf("first delivery: %d, want 202", code)
+			}
+		case <-time.After(time.Second):
+			t.Error("first delivery did not finish")
+		}
+	}()
+	select {
+	case <-d.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first delivery did not reach Deploy")
+	}
+	if code, resp := send(t, h, del); code != http.StatusOK || resp.Status != "duplicate" {
+		t.Errorf("concurrent replay: %d %+v, want 200 duplicate", code, resp)
 	}
 }
