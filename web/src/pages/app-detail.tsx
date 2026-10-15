@@ -16,6 +16,7 @@ import { useNow } from '@/hooks/use-now'
 import { usePoll } from '@/hooks/use-poll'
 import { buildPath } from '@/lib/routes'
 import { ago, duration, shortSha } from '@/lib/time'
+import { buildCause, capitalize, doneVerb } from '@/lib/build-labels'
 
 export default function AppDetailPage({ name }: { name: string }) {
   const load = useCallback(
@@ -90,7 +91,7 @@ function LiveCard({ app, now }: { app: AppInfo; now: number }) {
               Commit <code className="type-code">{shortSha(app.live.commit)}</code>
             </span>
             <span className="text-muted-foreground">
-              {app.live.kind === 'rollback' ? 'Rolled back' : 'Deployed'}{' '}
+              {capitalize(doneVerb(app.live))}{' '}
               {ago(app.live.finished_at ?? app.live.queued_at, now)}
             </span>
             {app.live.site ? (
@@ -132,7 +133,7 @@ function History({ builds, now }: { builds: Build[]; now: number }) {
               <TableRow key={b.id}>
                 <TableCell>
                   <a href={buildPath(b.id)} className="underline-offset-4 hover:underline">
-                    {b.kind === 'rollback' ? 'Rollback' : b.pusher === 'dashboard' ? 'Redeploy' : 'Push'}
+                    {buildCause(b)}
                   </a>
                 </TableCell>
                 <TableCell className="type-code">{shortSha(b.commit)}</TableCell>

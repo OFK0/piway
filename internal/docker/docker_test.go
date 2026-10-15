@@ -1,7 +1,9 @@
 package docker
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -387,5 +389,24 @@ func TestImages(t *testing.T) {
 	}
 	if err := c.RemoveImage(ctx, "in-use"); !errors.Is(err, ErrConflict) {
 		t.Errorf("image in use: %v, want ErrConflict", err)
+	}
+}
+
+func TestDemux(t *testing.T) {
+	frame := func(stream byte, s string) []byte {
+		b := []byte{stream, 0, 0, 0, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(b[4:], uint32(len(s)))
+		return append(b, s...)
+	}
+	var in []byte
+	in = append(in, frame(1, "2026-10-15T12:00:00Z listening on :3000\n")...)
+	in = append(in, frame(2, "2026-10-15T12:00:01Z warning: slow\n")...)
+	in = append(in, frame(1, "")...)
+	got, err := demux(bytes.NewReader(in))
+	if err != nil || got != "2026-10-15T12:00:00Z listening on :3000\n2026-10-15T12:00:01Z warning: slow\n" {
+		t.Errorf("demux = %q, %v", got, err)
+	}
+	if _, err := demux(bytes.NewReader(in[:12])); err == nil {
+		t.Error("a truncated frame was not an error")
 	}
 }

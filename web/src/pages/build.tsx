@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch'
 import { usePoll } from '@/hooks/use-poll'
 import { appPath } from '@/lib/routes'
 import { duration, shortSha } from '@/lib/time'
+import { buildCause } from '@/lib/build-labels'
 
 export default function BuildPage({ id }: { id: string }) {
   const load = useCallback((signal: AbortSignal) => fetchBuild(id, signal), [id])
@@ -40,7 +41,7 @@ export default function BuildPage({ id }: { id: string }) {
               {b.app}
             </a>
           )}
-          <h1 className="type-display">{b?.kind === 'rollback' ? 'Rollback' : 'Build'}</h1>
+          <h1 className="type-display">{b?.kind ? buildCause(b) : 'Build'}</h1>
           {b && (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
               <BuildState build={b} />

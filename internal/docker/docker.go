@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -424,4 +425,36 @@ func (c *Client) request(ctx context.Context, method, path string, q url.Values,
 func Available(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.Mode()&os.ModeSocket != 0
+}
+
+// Logs returns the last lines lines of what container id wrote to stdout
+// and stderr, interleaved as written, with RFC 3339 timestamps.
+func (c *Client) Logs(ctx context.Context, id string, lines int) (string, error) {
+	q := url.Values{"stdout": {"1"}, "stderr": {"1"}, "timestamps": {"1"}, "tail": {strconv.Itoa(lines)}}
+	resp, err := c.request(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/logs", q, nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	return demux(io.LimitReader(resp.Body, 8<<20))
+}
+
+// demux reads Docker's multiplexed log stream (containers without a TTY):
+// frames of an 8-byte header (stream type, 3 zero bytes, big-endian
+// length) and the payload.
+func demux(r io.Reader) (string, error) {
+	var out strings.Builder
+	var hdr [8]byte
+	for {
+		if _, err := io.ReadFull(r, hdr[:]); err != nil {
+			if errors.Is(err, io.EOF) {
+				return out.String(), nil
+			}
+			return out.String(), fmt.Errorf("docker: logs: %w", err)
+		}
+		n := binary.BigEndian.Uint32(hdr[4:])
+		if _, err := io.CopyN(&out, r, int64(n)); err != nil {
+			return out.String(), fmt.Errorf("docker: logs: %w", err)
+		}
+	}
 }

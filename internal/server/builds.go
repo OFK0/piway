@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -21,6 +23,10 @@ type Builds interface {
 	Rollback(app string) (deploy.Build, error)
 	Redeploy(app string) (deploy.Build, error)
 	Apps(ctx context.Context) ([]deploy.App, error)
+	Restart(app string) (deploy.Build, error)
+	DeployNow(ctx context.Context, r deploy.DeployRequest, pusher string) (deploy.Build, error)
+	Targets() []deploy.Target
+	Logs(ctx context.Context, app string, lines int) (string, error)
 }
 
 func buildRoutes(mux *http.ServeMux, b Builds) {
@@ -41,6 +47,94 @@ func buildRoutes(mux *http.ServeMux, b Builds) {
 	mux.HandleFunc("GET /api/v1/apps", h(listApps))
 	mux.HandleFunc("POST /api/v1/apps/{name}/rollback", h(rollback))
 	mux.HandleFunc("POST /api/v1/apps/{name}/redeploy", h(redeploy))
+	mux.HandleFunc("POST /api/v1/apps/{name}/restart", h(restart))
+	mux.HandleFunc("POST /api/v1/apps/{name}/deploy", h(deployApp))
+	mux.HandleFunc("GET /api/v1/apps/{name}/logs", h(appLogs))
+	mux.HandleFunc("POST /api/v1/deploys", h(deployTarget))
+	mux.HandleFunc("GET /api/v1/targets", h(listTargets))
+}
+
+func restart(w http.ResponseWriter, r *http.Request, b Builds) {
+	build, err := b.Restart(r.PathValue("name"))
+	switch {
+	case errors.Is(err, deploy.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no app with that name is running a successful build")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, build)
+	}
+}
+
+// deployApp deploys an app's branch: its newest commit, or {"commit"}.
+func deployApp(w http.ResponseWriter, r *http.Request, b Builds) {
+	var req deploy.DeployRequest
+	if r.ContentLength != 0 {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, `send {"commit": "<full SHA>"} or nothing`)
+			return
+		}
+	}
+	deployNow(w, r, b, deploy.DeployRequest{App: r.PathValue("name"), Commit: req.Commit})
+}
+
+// deployTarget deploys a repository branch from apps.yaml, built or not.
+func deployTarget(w http.ResponseWriter, r *http.Request, b Builds) {
+	var req deploy.DeployRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Repo == "" || req.Branch == "" {
+		writeError(w, http.StatusBadRequest, `send {"repo": "owner/name", "branch": "main", "commit": optional full SHA}`)
+		return
+	}
+	deployNow(w, r, b, deploy.DeployRequest{Repo: req.Repo, Branch: req.Branch, Commit: req.Commit})
+}
+
+func deployNow(w http.ResponseWriter, r *http.Request, b Builds, req deploy.DeployRequest) {
+	build, err := b.DeployNow(r.Context(), req, "api")
+	switch {
+	case errors.Is(err, deploy.ErrUnknownTarget):
+		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, deploy.ErrBadCommit):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, deploy.ErrNoHead):
+		writeError(w, http.StatusBadGateway, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, build)
+	}
+}
+
+func listTargets(w http.ResponseWriter, _ *http.Request, b Builds) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"targets": b.Targets()})
+}
+
+// appLogs returns the last ?lines= (default 100, at most 5000) lines of
+// the app's running container.
+func appLogs(w http.ResponseWriter, r *http.Request, b Builds) {
+	lines := 100
+	if v := r.URL.Query().Get("lines"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 5000 {
+			writeError(w, http.StatusBadRequest, "lines must be between 1 and 5000")
+			return
+		}
+		lines = n
+	}
+	out, err := b.Logs(r.Context(), r.PathValue("name"), lines)
+	switch {
+	case errors.Is(err, deploy.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no app with that name has been deployed")
+	case errors.Is(err, deploy.ErrNotRunning):
+		writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write([]byte(out))
+	}
 }
 
 func listBuilds(w http.ResponseWriter, _ *http.Request, b Builds) {

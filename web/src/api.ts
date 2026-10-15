@@ -137,7 +137,7 @@ export interface Build {
   commit: string
   pusher?: string
   state: BuildState
-  kind?: 'rollback'
+  kind?: 'rollback' | 'restart'
   rollback_of?: string
   image?: string
   /** Set for a static site: the build whose copy of the site this one serves. */
@@ -216,3 +216,20 @@ export interface AlertsResponse {
 }
 
 export const fetchAlerts = (signal?: AbortSignal) => getJSON<AlertsResponse>('/api/v1/alerts', signal)
+
+export const restartApp = (name: string) =>
+  deployJSON<Build>(`/api/v1/apps/${encodeURIComponent(name)}/restart`, { method: 'POST' })
+/** Deploys the newest commit of the app's branch, or `commit` (a full SHA). */
+export const deployApp = (name: string, commit?: string) =>
+  deployJSON<Build>(`/api/v1/apps/${encodeURIComponent(name)}/deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(commit ? { commit } : {}),
+  })
+export interface DeployTarget {
+  repo: string
+  branch: string
+  app?: string
+}
+export const fetchTargets = (signal?: AbortSignal) =>
+  deployJSON<{ targets: DeployTarget[] }>('/api/v1/targets', { signal }).then((r) => r.targets)

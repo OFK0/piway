@@ -131,6 +131,32 @@ Checks run every `interval` with a `timeout` each; failures during
 `start_period` do not count, and after it 3 failures in a row reject the
 version. A container that exits fails at once.
 
+### Deploy without a push
+
+GitHub cannot reach a Pi that is not on the internet, so pushes may never
+arrive. Deploy by hand instead, with an [API token](API.md#api-tokens) or
+from Claude Code ([MCP.md](MCP.md)):
+
+```sh
+# The newest commit of an app's branch (piway asks the remote: git ls-remote)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/v1/apps/<name>/deploy
+# A repository branch in apps.yaml that was never deployed
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -d '{"repo":"owner/name","branch":"main"}' localhost:8080/api/v1/deploys
+```
+
+Either takes `"commit"` (a full SHA) to deploy that commit instead. The
+build is the same as for a push, recorded with pusher `api`.
+
+### Restart
+
+```sh
+curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/v1/apps/<name>/restart
+```
+
+starts a fresh container of the version that runs now, health-checks it
+and switches to it like a deploy: no rebuild and no downtime. For an app
+that hangs or leaks memory. Logged as a build with `"kind": "restart"`.
+
 ### Rollback
 
 ```sh

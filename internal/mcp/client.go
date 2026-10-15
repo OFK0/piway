@@ -122,6 +122,9 @@ func (t InProcess) RoundTrip(req *http.Request) (*http.Response, error) {
 	rec := &recorder{header: http.Header{}, code: http.StatusOK}
 	in := req.Clone(req.Context())
 	in.RequestURI = req.URL.RequestURI()
+	if in.Body == nil {
+		in.Body = http.NoBody // as a real server gives a request without one
+	}
 	if in.RemoteAddr == "" {
 		in.RemoteAddr = req.RemoteAddr
 	}

@@ -14,6 +14,7 @@ import { useNow } from '@/hooks/use-now'
 import { usePoll } from '@/hooks/use-poll'
 import { appPath, buildPath } from '@/lib/routes'
 import { ago, shortSha } from '@/lib/time'
+import { doneVerb } from '@/lib/build-labels'
 
 export default function AppsPage() {
   const load = useCallback((signal: AbortSignal) => fetchApps(signal), [])
@@ -69,7 +70,7 @@ function AppRow({ app, now, onChange }: { app: AppInfo; now: number; onChange: (
             {app.live ? (
               <span>
                 <code className="type-code text-foreground">{shortSha(app.live.commit)}</code>{' '}
-                {app.live.kind === 'rollback' ? 'rolled back' : 'deployed'} {ago(app.live.finished_at ?? app.live.queued_at, now)}
+                {doneVerb(app.live)} {ago(app.live.finished_at ?? app.live.queued_at, now)}
               </span>
             ) : (
               <span>No successful deploy yet</span>

@@ -43,6 +43,24 @@ the Pi.
 | Tool | Changes something | What it does |
 | ---- | ----------------- | ------------ |
 | `get_status` | no | CPU load and temperature, throttling, memory and disk use, active alerts, how many apps are deployed. |
+| `list_apps` | no | Each app: repository, address, the commit it runs (container or static site), its latest build if that failed; and branches in `apps.yaml` never deployed. |
+| `tail_logs` | no | `app`: the last `lines` (default 100, at most 1000) of its running container. `build`: the build's state and the end of its log. |
+| `deploy` | **yes** | Build and release the newest commit (or `commit`) of an `app`, or of a `repo` and `branch` in `apps.yaml`. Same as a push ([DEPLOY.md](DEPLOY.md#deploy-without-a-push)). |
+| `restart_app` | **yes** | A fresh container of the version that runs, without rebuilding or downtime. |
+| `rollback_app` | **yes** | The version the app ran before, after the same health check as a deploy. |
+
+### Changing tools ask first
+
+`deploy`, `restart_app` and `rollback_app` require `confirm: true`.
+Without it they do nothing and answer, as an error the model sees, what
+they would have done and that the user should confirm. Their
+annotations say `destructiveHint: true`, so clients that ask before such
+calls (Claude Code does, unless you allowed the tool) ask too. Builds run
+in the background: the answer is the build id, and `tail_logs` with
+`build` follows it until it says Deployed or Failed.
+
+Arguments are checked strictly: an unknown or misspelled argument is an
+error the model can correct, not a silent default.
 
 Each result has a text summary for the model and the same data as
 `structuredContent` JSON. A failure (piway unreachable, a bad token) is a
