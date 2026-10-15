@@ -329,3 +329,15 @@ func TestProxySettings(t *testing.T) {
 		t.Errorf("a single label (<name>.local) rejected: %q", l.ProxyDomain)
 	}
 }
+
+func TestNotifyDeploys(t *testing.T) {
+	if l := load(t, nil, env{}, ""); l.NotifyDeploys != "all" {
+		t.Errorf("default %q", l.NotifyDeploys)
+	}
+	if l := load(t, []string{"-notify-deploys", "failures"}, env{}, ""); l.NotifyDeploys != "failures" {
+		t.Errorf("flag: %q", l.NotifyDeploys)
+	}
+	if err := loadErr(t, []string{"-notify-deploys", "some"}, env{}, ""); !strings.Contains(err.Error(), "all, failures or off") {
+		t.Errorf("err %v", err)
+	}
+}

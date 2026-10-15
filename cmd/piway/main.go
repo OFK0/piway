@@ -30,6 +30,7 @@ import (
 	"github.com/ofk0/piway/internal/history"
 	"github.com/ofk0/piway/internal/mcp"
 	"github.com/ofk0/piway/internal/mdns"
+	"github.com/ofk0/piway/internal/notify"
 	"github.com/ofk0/piway/internal/push"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/router"
@@ -119,11 +120,14 @@ func run(cfg config.Config) error {
 		return err
 	}
 	ag.OnPublish(func(s *agent.Snapshot) { alerts.Observe(recorder.Points(nil, s), s.Time) })
-	notifier, err := openPush(cfg, alerts, log)
+	pusher, err := openPush(cfg, log)
 	if err != nil {
 		return err
 	}
-	go notifier.Run(ctx)
+	go pusher.Run(ctx)
+	// Alerts and finished builds become notifications (docs/ALERTS.md).
+	notifier := &notify.Notifier{Mode: notify.Mode(cfg.NotifyDeploys), Send: pusher}
+	alerts.OnEvent(notifier.Alert)
 
 	hist, err := openHistory(cfg, log)
 	if err != nil {
@@ -181,7 +185,7 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	pipeline, err := openPipeline(ctx, cfg, repos, routes, proxy, alerts, log)
+	pipeline, err := openPipeline(ctx, cfg, repos, routes, proxy, alerts, notifier, log)
 	if err != nil {
 		return err
 	}
@@ -216,7 +220,7 @@ func run(cfg config.Config) error {
 		}
 	}()
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, WebhookSecretSet: cfg.WebhookSecret != "", UI: ui, Auth: guard, Alerts: alerts, Push: notifier,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, WebhookSecretSet: cfg.WebhookSecret != "", UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -315,9 +319,8 @@ func openAlerts(cfg config.Config, log *slog.Logger) (*alert.Engine, error) {
 	return e, nil
 }
 
-// openPush sets up Web Push and sends every alert that fires or resolves
-// to the subscribed devices.
-func openPush(cfg config.Config, alerts *alert.Engine, log *slog.Logger) (*push.Service, error) {
+// openPush sets up Web Push to the subscribed devices.
+func openPush(cfg config.Config, log *slog.Logger) (*push.Service, error) {
 	dataDir := cfg.DataDir
 	if dataDir == "" {
 		dataDir = config.DefaultDataDir()
@@ -326,16 +329,6 @@ func openPush(cfg config.Config, alerts *alert.Engine, log *slog.Logger) (*push.
 	if err != nil {
 		return nil, err
 	}
-	alerts.OnEvent(func(ev alert.Event) {
-		m := push.Message{Title: ev.Rule, Body: ev.Summary, Tag: "alert:" + ev.Rule + ":" + ev.Series, URL: "/", Urgent: true}
-		if ev.State == alert.Resolved {
-			m.Title, m.Urgent = "Resolved: "+ev.Rule, false
-		}
-		if ev.Rule == alert.DeployRule {
-			m.URL = "/apps"
-		}
-		p.Notify(m)
-	})
 	return p, nil
 }
 
@@ -493,7 +486,7 @@ func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, lo
 
 // openPipeline starts the build pipeline if a Docker daemon is reachable,
 // and returns nil (deploys off) otherwise.
-func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSource, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, log *slog.Logger) (*deploy.Pipeline, error) {
+func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSource, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, notifier *notify.Notifier, log *slog.Logger) (*deploy.Pipeline, error) {
 	sock, err := docker.SocketPath(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -520,13 +513,14 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 		Logger:  log,
 		OnFinish: func(b deploy.Build) {
 			if b.State == deploy.Succeeded || b.State == deploy.Failed {
-				target := strings.ToLower(b.Repo) + "@" + b.Branch
-				alerts.DeployFinished(target, b.App, b.State == deploy.Failed, b.Error, b.Finished)
+				alerts.DeployFinished(notify.Target(b.Repo, b.Branch), b.App, b.State == deploy.Failed, b.Error, b.Finished)
+				notifier.Build(b)
 			}
 		},
 	}
 	if proxy != nil {
 		opts.AppURL = proxy.URL
+		notifier.AppURL = proxy.URL
 	}
 	p, err := deploy.New(opts)
 	if err != nil {
