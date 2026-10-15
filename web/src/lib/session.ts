@@ -53,3 +53,38 @@ export function onSignedOut(f: () => void): () => void {
 
 /** Answers that mean the browser must sign in (again). */
 export const needsSignIn = (status: number) => status === 401 || status === 403
+
+/** An API token as listed; the token itself is only in TokenCreated. */
+export interface APIToken {
+  id: string
+  name: string
+  /** The token's first characters, to tell tokens apart. */
+  hint: string
+  created_at: string
+  last_used_at?: string
+}
+
+export interface TokenCreated extends APIToken {
+  token: string
+}
+
+async function tokensJSON<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, init)
+  if (res.status === 401) notifySignedOut() // 403 here means "use a browser session", not "signed out"
+  if (res.status === 204) return undefined as T
+  const body = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
+  return body as T
+}
+
+export const fetchTokens = (signal?: AbortSignal) =>
+  tokensJSON<{ tokens: APIToken[] }>('/api/v1/tokens', { signal }).then((r) => r.tokens)
+
+export const createToken = (name: string) =>
+  tokensJSON<TokenCreated>('/api/v1/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+
+export const revokeToken = (id: string) => tokensJSON<void>(`/api/v1/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })

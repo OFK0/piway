@@ -6,6 +6,7 @@ export type Route =
   | { page: 'app'; name: string }
   | { page: 'build'; id: string }
   | { page: 'design-system' }
+  | { page: 'settings' }
   | { page: 'not-found' }
 
 export function matchRoute(pathname: string): Route {
@@ -21,6 +22,8 @@ export function matchRoute(pathname: string): Route {
       return second === undefined ? { page: 'not-found' } : { page: 'build', id: second }
     case 'design-system':
       return second === undefined ? { page: 'design-system' } : { page: 'not-found' }
+    case 'settings':
+      return second === undefined ? { page: 'settings' } : { page: 'not-found' }
     default:
       return { page: 'not-found' }
   }

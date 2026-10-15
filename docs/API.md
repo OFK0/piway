@@ -22,7 +22,8 @@ page is one of them.
 
 - **Password set** (`piway -set-password`, see
   [CONFIG.md](CONFIG.md#dashboard-password)): a request needs the
-  `piway_session` cookie from `POST /api/v1/login`, else it gets `401`.
+  `piway_session` cookie from `POST /api/v1/login`, or an
+  [API token](#api-tokens), else it gets `401`.
 - **No password yet**: piway answers only requests from the Pi itself
   (`127.0.0.1` or `::1`), such as through an SSH tunnel. Others get
   `403` with how to set a password. A reverse proxy on the Pi makes every
@@ -46,6 +47,32 @@ After 5 wrong passwords from one address, each further wrong one locks
 that address out for twice as long as the last, from 30 s up to an hour;
 a right password, or a day without failures, starts over. Passwords are
 checked one at a time (each check takes about 0.3 s and 64 MiB on a Pi 4).
+
+### API tokens
+
+For scripts, Prometheus and the MCP server: create a token in the
+dashboard (Settings) and send it as a bearer token.
+
+```sh
+curl -H "Authorization: Bearer piway_…" http://<pi-address>:8080/api/v1/apps
+```
+
+- A token works for everything a session does, from any address, with or
+  without a password set. A wrong or revoked token gets `401`, even from
+  the Pi itself.
+- Tokens start with `piway_`, so secret scanners can spot one in a
+  repository. piway stores only their SHA-256 hash, in
+  `<data_dir>/tokens.json`; the token is shown once, when it is created.
+- Changing the password does not end tokens; revoking does.
+- Tokens are managed only from a signed-in browser (or, without a
+  password, from the Pi itself). A request that carries a token gets `403`
+  here, so a leaked token cannot create more.
+
+| Method and path | Response |
+| --------------- | -------- |
+| `GET /api/v1/tokens` | `{"tokens": [{"id", "name", "hint", "created_at", "last_used_at"}…]}`, newest first. `hint` is the token's first characters. `last_used_at` is updated at most once a minute on disk. |
+| `POST /api/v1/tokens` | Body `{"name": "..."}` (1 to 64 characters). `201` with the token's fields plus `"token"`, the only time it is shown. `409` at 50 tokens. |
+| `DELETE /api/v1/tokens/{id}` | `204`; the token stops working at once. `404` for an unknown id. |
 
 ## `GET /healthz`
 
@@ -311,16 +338,18 @@ The newest snapshot in the [Prometheus text format](https://prometheus.io/docs/i
 (`Content-Type: text/plain; version=0.0.4`), for Prometheus, Grafana Agent
 or any compatible scraper. The output passes `promtool check metrics`.
 
+Like the API, `/metrics` needs [sign-in](#sign-in): give Prometheus an
+[API token](#api-tokens).
+
 ```yaml
 # prometheus.yml
 scrape_configs:
   - job_name: piway
     static_configs:
       - targets: ["<pi-address>:8080"]
+    authorization:
+      credentials_file: /etc/prometheus/piway-token # the piway_… token
 ```
-
-Like the API, `/metrics` needs [sign-in](#sign-in). Until API tokens
-arrive (#28), scrape it from the Pi itself with no password set.
 
 Values use base units (seconds, bytes, degrees Celsius). Unlike the JSON API,
 CPU, disk and network are cumulative counters, not rates: use `rate()` over

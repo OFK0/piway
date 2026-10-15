@@ -40,6 +40,7 @@ const SessionTTL = 30 * 24 * time.Hour
 type Options struct {
 	PasswordFile string // the argon2id hash; missing means no password yet
 	SessionsFile string // sessions kept across restarts; "" keeps them in memory
+	TokensFile   string // API tokens; "" keeps them in memory
 	Logger       *slog.Logger
 	now          func() time.Time
 }
@@ -50,9 +51,11 @@ type Auth struct {
 	limiter *limiter
 	verify  chan struct{} // one argon2id verification at a time
 
-	mu       sync.Mutex
-	sessions map[string]session // by the hex SHA-256 of the token
-	pw       passwordCache
+	mu          sync.Mutex
+	sessions    map[string]session // by the hex SHA-256 of the token
+	pw          passwordCache
+	tokens      []*Token // oldest first
+	tokensSaved time.Time
 }
 
 type session struct {
@@ -84,10 +87,23 @@ func New(opts Options) (*Auth, error) {
 			}
 		}
 	}
+	if err := a.loadTokens(); err != nil {
+		return nil, fmt.Errorf("API tokens in %s: %w", opts.TokensFile, err)
+	}
 	a.mu.Lock()
 	a.pruneLocked()
 	a.mu.Unlock()
 	return a, nil
+}
+
+// Close writes the tokens' last-used times, which are saved lazily.
+func (a *Auth) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.tokens) == 0 {
+		return nil
+	}
+	return a.saveTokensLocked()
 }
 
 // passwordCache rereads the password file only when it changes.
@@ -133,11 +149,20 @@ func (a *Auth) Mode() string {
 	return "local"
 }
 
-// Allowed reports whether r may use the API: it carries a valid session,
-// or no password is set and it comes from the Pi itself.
+// Allowed reports whether r may use the API: it carries a valid API token
+// or session, or no password is set and it comes from the Pi itself.
 func (a *Auth) Allowed(r *http.Request) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if t, present := a.tokenLocked(r); present {
+		return t != nil // a bad token is refused, even from loopback
+	}
+	return a.signedInLocked(r)
+}
+
+// signedInLocked is Allowed without API tokens: a browser session, or the
+// Pi itself while no password is set.
+func (a *Auth) signedInLocked(r *http.Request) bool {
 	_, gen := a.passwordLocked()
 	if gen == "" {
 		return isLoopback(r.RemoteAddr)
@@ -174,6 +199,20 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 	})
 }
 
+// requireSession is Require without API tokens, for managing them.
+func (a *Auth) requireSession(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		ok := r.Header.Get("Authorization") == "" && a.signedInLocked(r)
+		a.mu.Unlock()
+		if !ok {
+			writeError(w, http.StatusForbidden, "API tokens are managed from a signed-in browser, not with a token")
+			return
+		}
+		next(w, r)
+	})
+}
+
 func isLoopback(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -193,6 +232,9 @@ func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/session", a.status)
 	mux.HandleFunc("POST /api/v1/login", a.login)
 	mux.HandleFunc("POST /api/v1/logout", a.logout)
+	mux.Handle("GET /api/v1/tokens", a.requireSession(a.listTokens))
+	mux.Handle("POST /api/v1/tokens", a.requireSession(a.createToken))
+	mux.Handle("DELETE /api/v1/tokens/{id}", a.requireSession(a.revokeToken))
 }
 
 type statusBody struct {
@@ -324,20 +366,24 @@ func (a *Auth) pruneLocked() {
 	}
 }
 
-// saveLocked writes the sessions file (mode 0600) in one rename.
-func (a *Auth) saveLocked() error {
-	if a.opts.SessionsFile == "" {
+// saveLocked writes the sessions file.
+func (a *Auth) saveLocked() error { return writeFile(a.opts.SessionsFile, a.sessions) }
+
+// writeFile writes v as JSON to path (mode 0600) in one rename; "" is a
+// no-op.
+func writeFile(path string, v any) error {
+	if path == "" {
 		return nil
 	}
-	b, err := json.Marshal(a.sessions)
+	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(a.opts.SessionsFile)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".sessions-")
+	tmp, err := os.CreateTemp(dir, ".tmp-")
 	if err != nil {
 		return err
 	}
@@ -349,7 +395,7 @@ func (a *Auth) saveLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), a.opts.SessionsFile)
+	return os.Rename(tmp.Name(), path)
 }
 
 func clientKey(remoteAddr string) string {
