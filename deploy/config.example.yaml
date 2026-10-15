@@ -26,6 +26,9 @@
 # retention_1m: 7d
 # retention_1h: 365d
 
+# Alert rules (docs/ALERTS.md). A missing file means the built-in rules.
+# alerts_file: "~/.config/piway/alerts.yaml"
+
 # The dashboard password's hash, written by "piway -set-password". Until one
 # is set, piway answers only this machine (docs/CONFIG.md).
 # password_file: "~/.config/piway/password"

@@ -231,6 +231,39 @@ nothing gives `"series": []`.
 | `400` | Missing `name`, unparsable `from`/`to`/`step`, or `to` not after `from`. |
 | `503` | Recording is disabled (`data_dir` is empty). |
 
+## `GET /api/v1/alerts`
+
+The alert engine's state ([ALERTS.md](ALERTS.md)).
+
+```json
+{
+  "active": [
+    {
+      "rule": "Disk is almost full",
+      "series": "filesystem_used_percent{path=\"/\"}",
+      "summary": "Disk is almost full (/): 93.2 % (> 90 %)",
+      "state": "firing",
+      "value": 93.2,
+      "since": "2026-10-15T12:05:00Z",
+      "fired_at": "2026-10-15T12:05:00Z"
+    }
+  ],
+  "events": [],
+  "rules": [{"name": "Disk is almost full", "metric": "filesystem_used_percent", "condition": "> 90", "for": "5m0s", "clear_for": "1m0s"}],
+  "deploy_failures": true
+}
+```
+
+- `active`: alerts that are `pending` (breached, waiting for `for`),
+  `firing`, or `clearing` (firing, back to normal, waiting for
+  `clear_for`); firing first. `since` is when the current state began;
+  `fired_at` is set once it fired. `value` is the latest value of a metric
+  alert; deploy alerts have none and their `series` is
+  `deploy:<repo>@<branch>`.
+- `events`: the last 50 announcements, newest first: the alert as it
+  fired (`"state": "firing"`) or resolved (`"resolved"`), plus `at`.
+- `rules`: the rules in use, built-in or from `alerts_file`.
+
 ## `POST /api/v1/webhooks/github`
 
 Receives GitHub webhook deliveries; see [DEPLOY.md](DEPLOY.md) for setup and

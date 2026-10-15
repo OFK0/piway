@@ -74,6 +74,7 @@ changes that span the whole repository.
 | `caddy` | `internal/caddy`, `docs/PROXY.md` (app domains) |
 | `mdns` | `internal/mdns` (app names on the LAN) |
 | `auth` | `internal/auth` (sign-in, sessions) |
+| `alert` | `internal/alert`, `docs/ALERTS.md` (alert rules) |
 | `web` | `web/` (dashboard), `internal/webui` (its embedding) |
 | `cli` | `cmd/*` |
 | `deploy` | `deploy/` (systemd, example configs) |

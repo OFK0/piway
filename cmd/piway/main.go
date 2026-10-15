@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ofk0/piway/internal/agent"
+	"github.com/ofk0/piway/internal/alert"
 	"github.com/ofk0/piway/internal/auth"
 	"github.com/ofk0/piway/internal/caddy"
 	"github.com/ofk0/piway/internal/config"
@@ -97,6 +98,12 @@ func run(cfg config.Config) error {
 		hub.Broadcast(b)
 	})
 
+	alerts, err := openAlerts(cfg, log)
+	if err != nil {
+		return err
+	}
+	ag.OnPublish(func(s *agent.Snapshot) { alerts.Observe(recorder.Points(nil, s), s.Time) })
+
 	hist, err := openHistory(cfg, log)
 	if err != nil {
 		return err
@@ -149,7 +156,7 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	pipeline, err := openPipeline(ctx, cfg, routes, proxy, log)
+	pipeline, err := openPipeline(ctx, cfg, routes, proxy, alerts, log)
 	if err != nil {
 		return err
 	}
@@ -187,7 +194,7 @@ func run(cfg config.Config) error {
 		}
 	}()
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard, Alerts: alerts,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -217,6 +224,25 @@ func run(cfg config.Config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// openAlerts loads the alert rules and logs every alert that fires or
+// resolves.
+func openAlerts(cfg config.Config, log *slog.Logger) (*alert.Engine, error) {
+	rules, err := alert.Load(cfg.AlertsFile)
+	if err != nil {
+		return nil, fmt.Errorf("alerts: %w", err)
+	}
+	e := alert.New(rules)
+	e.OnEvent(func(ev alert.Event) {
+		if ev.State == alert.Resolved {
+			log.Info("alert resolved", "rule", ev.Rule, "series", ev.Series, "summary", ev.Summary)
+		} else {
+			log.Warn("alert firing", "rule", ev.Rule, "series", ev.Series, "summary", ev.Summary)
+		}
+	})
+	log.Info("alerts on", "rules", len(rules.Rules), "deploy_failures", rules.DeployFailures, "file", cfg.AlertsFile)
+	return e, nil
 }
 
 // openAuth sets up sign-in. Sessions are kept next to the metrics history.
@@ -377,7 +403,7 @@ func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, lo
 
 // openPipeline starts the build pipeline if a Docker daemon is reachable,
 // and returns nil (deploys off) otherwise.
-func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router, proxy *caddy.Proxy, log *slog.Logger) (*deploy.Pipeline, error) {
+func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, log *slog.Logger) (*deploy.Pipeline, error) {
 	sock, err := docker.SocketPath(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -401,6 +427,12 @@ func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router,
 		Steps:   steps,
 		Runtime: steps,
 		Logger:  log,
+		OnFinish: func(b deploy.Build) {
+			if b.State == deploy.Succeeded || b.State == deploy.Failed {
+				target := strings.ToLower(b.Repo) + "@" + b.Branch
+				alerts.DeployFinished(target, b.App, b.State == deploy.Failed, b.Error, b.Finished)
+			}
+		},
 	}
 	if proxy != nil {
 		opts.AppURL = proxy.URL
