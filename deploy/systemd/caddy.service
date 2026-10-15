@@ -1,0 +1,15 @@
+[Unit]
+Description=Caddy, serving piway's apps (docs/PROXY.md)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# piway configures Caddy over its admin API (localhost:2019). --resume
+# starts from the config Caddy saved last, so apps are served before
+# piway syncs.
+ExecStart=%h/.local/bin/caddy run --resume
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

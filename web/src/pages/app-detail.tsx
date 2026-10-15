@@ -3,6 +3,7 @@ import { useCallback } from 'react'
 
 import { DeploysDisabledError, fetchApps, fetchBuilds, type AppInfo, type Build } from '@/api'
 import { AppActions } from '@/components/app-actions'
+import { AppAddress } from '@/components/app-address'
 import { AppShell } from '@/components/app-shell'
 import { AppStatus, isBusy } from '@/components/app-status'
 import { BuildState } from '@/components/build-state'
@@ -38,7 +39,7 @@ export default function AppDetailPage({ name }: { name: string }) {
           <h1 className="type-display">{name}</h1>
           {app && (
             <p className="text-muted-foreground">
-              {app.repo}@{app.branch}, served on 127.0.0.1:<span className="tabular-nums">{app.port}</span>
+              {app.repo}@{app.branch}, served at <AppAddress app={app} />
             </p>
           )}
         </div>

@@ -405,7 +405,8 @@ func (f fakeRuntime) Containers(context.Context) (map[string]Container, error) {
 
 func TestAppsAndRedeploy(t *testing.T) {
 	rt := fakeRuntime{"guestbook": {Name: "piway-guestbook-x", State: "running", Image: "piway/guestbook:aaaaaaaaaaaa"}}
-	h := start(t, t.TempDir(), Options{Runtime: rt})
+	url := func(app string) string { return "https://" + app + ".pi.local:8443" }
+	h := start(t, t.TempDir(), Options{Runtime: rt, AppURL: url})
 	if apps, _ := h.p.Apps(context.Background()); len(apps) != 0 {
 		t.Errorf("apps before any build: %+v", apps)
 	}
@@ -429,7 +430,7 @@ func TestAppsAndRedeploy(t *testing.T) {
 		t.Fatalf("apps = %+v", apps)
 	}
 	a := apps[0]
-	if a.Name != "guestbook" || a.Repo != "OFK0/guestbook" || a.Port != HostPort("guestbook") {
+	if a.Name != "guestbook" || a.Repo != "OFK0/guestbook" || a.Port != HostPort("guestbook") || a.URL != "https://guestbook.pi.local:8443" {
 		t.Errorf("app = %+v", a)
 	}
 	if a.Live == nil || a.Live.ID != good || a.Last == nil || a.Last.ID != bad || a.Last.State != Failed {

@@ -70,8 +70,8 @@ A queued deploy answers `202 {"status":"queued"}`.
 1. **Fetch** exactly the pushed commit, shallowly (`git fetch --depth 1`).
    Git never prompts: a private repository fails instead of hanging.
 2. **Read `piway.yaml`** ([MANIFEST.md](MANIFEST.md)). An invalid manifest
-   fails the build with its problems in the log. Static sites wait for the
-   Caddy integration (#24).
+   fails the build with its problems in the log. Static sites do not
+   deploy yet (#76).
 3. **Build** the image `piway/<name>:<commit>` with BuildKit for
    `linux/arm64`, natively on the Pi.
 4. **Release** without downtime (blue/green on one host):
@@ -90,8 +90,8 @@ A queued deploy answers `202 {"status":"queued"}`.
 Each app has a stable address, `127.0.0.1:<port>`, with the port derived
 from its name (20000–29999). piway listens there itself and proxies to
 whichever container is current; switching versions only changes where the
-proxy points, so no request is refused. Caddy (#24) will proxy
-`<name>.<domain>` to this address.
+proxy points, so no request is refused. With `proxy_domain` set, Caddy
+serves `<name>.<domain>` from this address ([PROXY.md](PROXY.md)).
 
 The trade-off: apps are reachable only while piway runs. When piway
 starts, it finds the running app containers and serves them again.

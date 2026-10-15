@@ -194,6 +194,8 @@ deploys are off (no Docker daemon).
 | `GET /api/v1/builds/{id}/log` | The log so far, `text/plain`. |
 | `GET /api/v1/builds/{id}/log/stream` | WebSocket: the log so far, then new output as it is written, as text messages (not aligned to lines). Closes with `1000` when the build ends; at once for a finished or still-queued build. |
 | `POST /api/v1/builds/{id}/cancel` | `202 {"status":"cancelling"}`; `409` if it already finished; `404`. |
+| `GET /api/v1/apps` | `{"apps": [App…]}`, by name: every app that has been built. |
+| `POST /api/v1/apps/{name}/redeploy` | `202` with the queued `Build`: a fresh build of the commit that is live now (`"pusher":"dashboard"`); `404` if the app has no successful build. |
 | `POST /api/v1/apps/{name}/rollback` | `202` with the queued rollback `Build` (`"kind":"rollback"`, `"rollback_of"`); `409` if the app has no earlier successful build; `404` if it was never deployed. |
 
 ```json
@@ -216,6 +218,26 @@ deploys are off (no Docker daemon).
 `kind` is `"rollback"` for a rollback (absent for a push).
 `state` is `queued`, `running`, `succeeded`, `failed` or `cancelled`;
 `error` explains the last two. `app` and `image` appear once known.
+
+An `App`:
+
+```json
+{
+  "name": "guestbook",
+  "repo": "OFK0/guestbook",
+  "branch": "main",
+  "port": 23438,
+  "url": "https://guestbook.pi.local:8443",
+  "live": {"id": "20261014T185759Z-b691d31", "state": "succeeded", "…": "…"},
+  "last": {"id": "20261014T185759Z-b691d31", "state": "succeeded", "…": "…"},
+  "container": {"name": "piway-guestbook-20261014t185759z-b691d31", "state": "running", "image": "piway/guestbook:b691d31695ba", "started_at": "2026-10-14T18:58:09Z"}
+}
+```
+
+`port` is the app's stable `127.0.0.1` address. `url` is where users reach
+it, present only with `proxy_domain` set ([PROXY.md](PROXY.md)). `live`
+is the `Build` serving now (its latest successful build or rollback),
+`last` the latest of any outcome; `container` is absent when none runs.
 
 ## `GET /api/v1/stream` (WebSocket)
 

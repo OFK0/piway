@@ -33,9 +33,10 @@ type Options struct {
 	Dir     string // builds/ (records, logs) and work/ (checkouts) go here
 	Steps   Steps
 	Logger  *slog.Logger
-	Timeout time.Duration // per build; default 30 minutes
-	Keep    int           // finished builds kept with their logs; default 100
-	Runtime Runtime       // optional: live container state for Apps
+	Timeout time.Duration           // per build; default 30 minutes
+	Keep    int                     // finished builds kept with their logs; default 100
+	Runtime Runtime                 // optional: live container state for Apps
+	AppURL  func(app string) string // optional: where users reach an app
 
 	now func() time.Time
 }
@@ -482,6 +483,7 @@ type App struct {
 	Repo      string     `json:"repo"`
 	Branch    string     `json:"branch"`
 	Port      int        `json:"port"`                // stable 127.0.0.1 address
+	URL       string     `json:"url,omitempty"`       // public address, if apps are published
 	Live      *Build     `json:"live,omitempty"`      // what it runs: its latest successful build or rollback
 	Last      *Build     `json:"last,omitempty"`      // the latest build of any outcome
 	Container *Container `json:"container,omitempty"` // nil if none is running
@@ -527,6 +529,9 @@ func (p *Pipeline) Apps(ctx context.Context) ([]App, error) {
 		a := byName[n]
 		if c, ok := running[n]; ok {
 			a.Container = &c
+		}
+		if p.opts.AppURL != nil {
+			a.URL = p.opts.AppURL(n)
 		}
 		out = append(out, *a)
 	}

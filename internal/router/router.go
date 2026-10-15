@@ -28,9 +28,10 @@ import (
 
 // Router serves one listener per app on 127.0.0.1.
 type Router struct {
-	log    *slog.Logger
-	mu     sync.Mutex
-	routes map[string]*route
+	log      *slog.Logger
+	mu       sync.Mutex
+	routes   map[string]*route
+	onChange func()
 }
 
 type route struct {
@@ -44,6 +45,27 @@ func New(log *slog.Logger) *Router {
 	return &Router{log: log, routes: map[string]*route{}}
 }
 
+// OnChange registers f to run after an app gains or loses its route, not
+// when a route merely switches containers. Call it before the first Set.
+func (r *Router) OnChange(f func()) { r.onChange = f }
+
+func (r *Router) changed() {
+	if r.onChange != nil {
+		r.onChange()
+	}
+}
+
+// Ports returns each routed app's stable port.
+func (r *Router) Ports() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]int, len(r.routes))
+	for app, rt := range r.routes {
+		out[app] = rt.port
+	}
+	return out
+}
+
 // Set points app's stable port at target (http://127.0.0.1:<port>),
 // listening on 127.0.0.1:port first if the app has no route yet.
 func (r *Router) Set(app string, port int, target string) error {
@@ -52,14 +74,25 @@ func (r *Router) Set(app string, port int, target string) error {
 		return fmt.Errorf("router: bad target %q", target)
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if rt, ok := r.routes[app]; ok {
+		defer r.mu.Unlock()
 		if rt.port != port {
 			return fmt.Errorf("router: %s already listens on %d", app, rt.port)
 		}
 		rt.target.Store(u)
 		return nil
 	}
+	if err := r.listen(app, port, u); err != nil {
+		r.mu.Unlock()
+		return err
+	}
+	r.mu.Unlock()
+	r.changed()
+	return nil
+}
+
+// listen starts app's route; r.mu is held.
+func (r *Router) listen(app string, port int, u *url.URL) error {
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return fmt.Errorf("router: %s: %w", app, err)
@@ -115,6 +148,7 @@ func (r *Router) Remove(app string) {
 	if ok {
 		rt.srv.Close()
 		<-rt.done
+		r.changed()
 	}
 }
 
