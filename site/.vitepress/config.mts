@@ -79,6 +79,7 @@ export default defineConfig({
           { text: 'Configuration', link: '/CONFIG' },
           { text: 'HTTP API and metrics', link: '/API' },
           { text: 'Storage', link: '/STORAGE' },
+          { text: 'Development', link: '/DEVELOPMENT' },
           { text: 'Releasing', link: '/RELEASING' },
           { text: 'Roadmap', link: '/ROADMAP' },
           { text: 'ADR 0001: Tailscale', link: '/adr/0001-remote-access-with-tailscale' },
