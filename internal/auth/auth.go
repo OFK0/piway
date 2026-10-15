@@ -7,7 +7,7 @@
 // password signs every session out.
 //
 // Until a password is set, piway answers only requests from the Pi itself
-// (loopback), such as through an SSH tunnel.
+// (loopback, and not forwarded by a proxy), such as through an SSH tunnel.
 package auth
 
 import (
@@ -165,7 +165,7 @@ func (a *Auth) Allowed(r *http.Request) bool {
 func (a *Auth) signedInLocked(r *http.Request) bool {
 	_, gen := a.passwordLocked()
 	if gen == "" {
-		return isLoopback(r.RemoteAddr)
+		return local(r)
 	}
 	s, ok := a.sessionLocked(r)
 	return ok && s.Gen == gen
@@ -271,7 +271,7 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "no password is set: run piway -set-password on the Pi")
 		return
 	}
-	client := clientKey(r.RemoteAddr)
+	client := clientAddr(r)
 	if wait := a.limiter.wait(client, a.opts.now()); wait > 0 {
 		retryAfter(w, wait)
 		writeError(w, http.StatusTooManyRequests, fmt.Sprintf("too many wrong passwords; try again in %v", wait.Round(time.Second)))
@@ -315,7 +315,7 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	a.opts.Logger.Info("signed in", "client", client)
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: token, Path: "/", Expires: s.Expires,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secure(r),
 	})
 	writeJSON(w, http.StatusOK, statusBody{Mode: "password", Authenticated: true, Expires: &s.Expires})
 }
@@ -342,7 +342,7 @@ func (a *Auth) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secure(r),
 	})
 	w.WriteHeader(http.StatusNoContent)
 }

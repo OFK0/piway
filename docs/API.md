@@ -27,8 +27,9 @@ page is one of them.
 - **No password yet**: piway answers only requests from the Pi itself
   (`127.0.0.1` or `::1`), such as through an SSH tunnel. Others get
   `403` with how to set a password. A reverse proxy on the Pi makes every
-  request look local, so set a password before putting one in front of
-  piway.
+  request come from loopback, so piway does not count a request as local
+  when it carries proxy headers (`X-Forwarded-For`, `Forwarded`,
+  `X-Real-Ip`, `Tailscale-User-Login`). See [REMOTE.md](REMOTE.md).
 
 Cross-site requests that change something are rejected with `403`: piway
 checks the browser's `Sec-Fetch-Site` and `Origin` headers (CSRF
