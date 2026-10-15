@@ -1,6 +1,9 @@
 [Unit]
 Description=piway agent
-After=network-online.target
+# Start after rootless Docker is ready (its unit is Type=notify): piway
+# looks for the daemon once, at startup, and turns deploys off without it.
+# Ordering only; a Pi without Docker still starts piway.
+After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
