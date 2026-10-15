@@ -271,7 +271,7 @@ var fields = []field{
 	},
 	{
 		key:   "proxy_domain",
-		usage: "serve each app at <name>.`domain` through Caddy, such as pi.local; empty disables it",
+		usage: "serve each app at <name>.`domain` through Caddy, such as local; empty disables it",
 		set: func(c *Config, s string) error {
 			s = strings.ToLower(strings.TrimSuffix(s, "."))
 			if s != "" && !domainPattern.MatchString(s) {

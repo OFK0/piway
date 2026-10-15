@@ -2,8 +2,8 @@
 
 With `proxy_domain` set, piway publishes each app at
 `<name>.<proxy_domain>` through [Caddy](https://caddyserver.com). For
-example, with `proxy_domain: pi.local`, the app `photos` is served at
-`https://photos.pi.local:8443`.
+example, with `proxy_domain: local`, the app `photos` is served at
+`https://photos.local:8443`, and the name resolves on the LAN over mDNS.
 
 ```text
 browser ──► Caddy :8443 ──► piway route 127.0.0.1:<port> ──► current container
@@ -63,13 +63,47 @@ root's private key (`root.key` next to it) on the Pi.
 
 ## Names
 
-Something has to make `<name>.<proxy_domain>` resolve to the Pi. Until
-#75 publishes the names over mDNS, add them to each client's hosts file
-(`/etc/hosts`, or `C:\Windows\System32\drivers\etc\hosts`), using the
-Pi's LAN address:
+Something has to make `<name>.<proxy_domain>` resolve to the Pi.
+
+### mDNS (`.local` domains)
+
+With a `proxy_domain` of `local` or one ending in `.local`, piway
+publishes each app's name on the LAN through avahi, the mDNS daemon
+Raspberry Pi OS runs by default. Each name is an alias (a CNAME record)
+of the Pi's own mDNS name, such as `raspberrypi.local`, so devices get
+whatever address the Pi has on their network, and a new DHCP lease
+needs nothing from piway. A name is published while its app has a
+route and withdrawn when piway stops; avahi withdraws it even if piway
+is killed.
+
+Prefer `proxy_domain: local`, which gives `photos.local`. Longer names
+such as `photos.pi.local` are published too, but not every client
+resolves them:
+
+| Client | `photos.local` | `photos.pi.local` |
+| ------ | -------------- | ----------------- |
+| macOS, iOS | yes | yes |
+| Linux with nss-mdns | yes | only with an `/etc/mdns.allow` file and `mdns4` instead of `mdns4_minimal` in `/etc/nsswitch.conf` (see the nss-mdns README) |
+| Windows 10 and later | resolves `.local` names over mDNS; not tested with piway | not tested |
+| Android | depends on the version and browser; use a hosts file or DNS if it fails | same |
+
+piway skips a name that is the Pi's own (an app called `raspberrypi`
+with `proxy_domain: local`) and logs why. avahi probes each name before
+it answers for it: if another device already answers to `photos.local`,
+that name is not published, piway logs it once, and the other apps are
+unaffected. Rename the app or change `proxy_domain`.
+
+If avahi is not running, piway logs that app names are not published
+and serves the apps anyway.
+
+### Hosts file
+
+For other domains, or clients without mDNS, add the names to each
+client's hosts file (`/etc/hosts`, or
+`C:\Windows\System32\drivers\etc\hosts`), using the Pi's LAN address:
 
 ```text
-192.0.2.10  photos.pi.local
+192.0.2.10  photos.pi.internal
 ```
 
 ## Ports
@@ -115,11 +149,11 @@ are served again before piway syncs. Then set the domain in piway's
 config and restart it:
 
 ```yaml
-proxy_domain: pi.local
+proxy_domain: local
 ```
 
 ```console
-$ curl --cacert caddy-root.crt https://photos.pi.local:8443/
+$ curl --cacert caddy-root.crt https://photos.local:8443/
 ```
 
 ## Security
