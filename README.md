@@ -34,11 +34,18 @@ cd web && npm run dev                 # UI with hot reload on :5173, proxies the
 
 See [web/README.md](web/README.md).
 
-## Install a release
+## Install on a Raspberry Pi
 
-Each release has a ready-to-run binary for the Pi (`linux/arm64`) with the
-dashboard built in. See [docs/RELEASING.md](docs/RELEASING.md#installing-on-the-pi)
-for downloading, verifying the checksum and installing it.
+On 64-bit Raspberry Pi OS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/OFK0/piway/main/install.sh | sh
+```
+
+It installs the latest release (checksum verified) and runs `piway setup`,
+which installs the service, rootless Docker, Caddy and mDNS, showing every
+`sudo` command first. See [docs/INSTALL.md](docs/INSTALL.md) for the
+options, uninstalling, and the manual steps.
 
 ## Run as a user service
 

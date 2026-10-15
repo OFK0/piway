@@ -48,6 +48,10 @@ func main() {
 			os.Exit(runMCP(os.Args[2:]))
 		case "doctor":
 			os.Exit(runDoctor(os.Args[2:]))
+		case "setup":
+			os.Exit(runSetup(os.Args[2:]))
+		case "uninstall":
+			os.Exit(runUninstall(os.Args[2:]))
 		}
 	}
 	cfg, err := config.Load(os.Args[1:], os.LookupEnv, config.DefaultPath(), os.Stderr)
