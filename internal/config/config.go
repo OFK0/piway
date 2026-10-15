@@ -50,6 +50,8 @@ type Config struct {
 	PasswordFile string
 	// AlertsFile holds the alert rules (docs/ALERTS.md); missing means defaults.
 	AlertsFile string
+	// PushContact is how push services can reach the operator (RFC 8292).
+	PushContact string
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -74,6 +76,7 @@ func Default() Config {
 		CaddyAdmin:    "localhost:2019",
 		PasswordFile:  DefaultPasswordFile(),
 		AlertsFile:    defaultConfigFile("alerts.yaml"),
+		PushContact:   "https://github.com/OFK0/piway",
 	}
 }
 
@@ -361,6 +364,19 @@ var fields = []field{
 			return nil
 		},
 		get:   func(c *Config) string { return c.AlertsFile },
+		quote: true,
+	},
+	{
+		key:   "push_contact",
+		usage: "a mailto: or https: `URL` push services may use to reach you about notifications",
+		set: func(c *Config, s string) error {
+			if !strings.HasPrefix(s, "mailto:") && !strings.HasPrefix(s, "https://") {
+				return fmt.Errorf("must start with mailto: or https://, got %q", s)
+			}
+			c.PushContact = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.PushContact },
 		quote: true,
 	},
 }

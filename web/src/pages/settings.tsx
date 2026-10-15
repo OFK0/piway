@@ -2,7 +2,9 @@ import { CheckIcon, CopyIcon, KeyIcon, PlusIcon, WarningCircleIcon } from '@phos
 import { useCallback, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 
+import { AlertsCard } from '@/components/alerts-card'
 import { AppShell } from '@/components/app-shell'
+import { NotificationsCard } from '@/components/notifications-card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,8 +38,11 @@ export default function SettingsPage() {
     <AppShell>
       <div className="flex flex-col gap-1">
         <h1 className="type-display">Settings</h1>
-        <p className="text-muted-foreground">Access to this piway.</p>
+        <p className="text-muted-foreground">Alerts, notifications and access to this piway.</p>
       </div>
+
+      <AlertsCard />
+      <NotificationsCard />
 
       <Card>
         <CardHeader>

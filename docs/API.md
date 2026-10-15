@@ -264,6 +264,18 @@ The alert engine's state ([ALERTS.md](ALERTS.md)).
   fired (`"state": "firing"`) or resolved (`"resolved"`), plus `at`.
 - `rules`: the rules in use, built-in or from `alerts_file`.
 
+## Push notifications
+
+Web Push subscriptions ([ALERTS.md](ALERTS.md#push-notifications)). All
+need [sign-in](#sign-in).
+
+| Method and path | Response |
+| --------------- | -------- |
+| `GET /api/v1/push` | `{"public_key": "<VAPID key, base64url>", "subscriptions": [{"id", "label", "service", "created_at", "last_ok_at", "last_error"}…]}`. Endpoints and keys are never returned. |
+| `POST /api/v1/push/subscriptions` | Body `{"subscription": PushSubscription.toJSON(), "label": "Chrome on Android"}`. `201` with the subscription; the same endpoint again updates it. `400` for an endpoint that is not https on a known push service, or bad keys; `409` at 20 devices. |
+| `DELETE /api/v1/push/subscriptions/{id}` | `204`, or `404`. |
+| `POST /api/v1/push/test` | Optional body `{"id": "..."}`. Sends a test notification now (to one device, or all) and answers `{"results": [{"id", "label", "ok", "error"}…]}`. |
+
 ## `POST /api/v1/webhooks/github`
 
 Receives GitHub webhook deliveries; see [DEPLOY.md](DEPLOY.md) for setup and
