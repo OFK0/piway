@@ -26,6 +26,11 @@ type Steps interface {
 	Image(ctx context.Context, m *manifest.Manifest, dir, image string, out io.Writer) error
 	// Release replaces the app's running container with one from image.
 	Release(ctx context.Context, m *manifest.Manifest, b Build, out io.Writer) error
+	// SiteBuild runs static.build in the checkout in dir, producing static.dir.
+	SiteBuild(ctx context.Context, m *manifest.Manifest, dir string, out io.Writer) error
+	// ReleaseSite serves the static site in siteDir as the app, replacing
+	// whatever served it before.
+	ReleaseSite(ctx context.Context, m *manifest.Manifest, b Build, siteDir string, out io.Writer) error
 }
 
 // Options configures a Pipeline.
@@ -226,11 +231,11 @@ func (p *Pipeline) run(parent context.Context, id string) {
 	p.mu.Unlock()
 
 	p.log.Info("build started", "build", id, "repo", b.Repo, "commit", b.Commit)
-	app, image, err := p.steps(ctx, snapshot, log)
+	res, err := p.steps(ctx, snapshot, log)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	b.App, b.Image = app, image
+	b.App, b.Image, b.Site = res.app, res.image, res.site
 	switch {
 	case err == nil && b.Kind == KindRollback:
 		fmt.Fprintf(log, "\n==> Rolled %s back to %s\n", b.App, b.Commit)
@@ -253,59 +258,131 @@ func (p *Pipeline) run(parent context.Context, id string) {
 	p.log.Info("build finished", "build", id, "state", b.State, "err", b.Error)
 }
 
+// result is what a build learned along the way.
+type result struct {
+	app, image, site string
+}
+
 // steps runs the build and reports what it learned along the way.
-func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (app, image string, err error) {
+func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (result, error) {
 	if b.Kind == KindRollback {
-		m, err := manifest.Load(p.store.manifestPath(b.RollbackOf))
-		if err != nil {
-			return b.App, b.Image, fmt.Errorf("piway.yaml of %s: %w", b.RollbackOf, err)
-		}
-		fmt.Fprintf(out, "==> Rolling %s back to %s (build %s, commit %s)\n", m.Name, b.Image, b.RollbackOf, b.Commit)
-		if err := p.opts.Steps.Release(ctx, m, b, out); err != nil {
-			return b.App, b.Image, fmt.Errorf("release: %w", err)
-		}
-		return b.App, b.Image, nil
+		return p.rollbackSteps(ctx, b, out)
 	}
+	var res result
 
 	dir := filepath.Join(p.opts.Dir, "work", b.ID)
 	defer os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", "", err
+		return res, err
 	}
 
 	fmt.Fprintf(out, "==> Fetching %s@%s (%s)\n", b.Repo, b.Branch, b.Commit)
 	if err := p.opts.Steps.Fetch(ctx, b, dir, out); err != nil {
-		return "", "", fmt.Errorf("fetch: %w", err)
+		return res, fmt.Errorf("fetch: %w", err)
 	}
 
 	m, err := manifest.Load(filepath.Join(dir, "piway.yaml"))
 	if err != nil {
 		fmt.Fprintf(out, "%v\n", err)
-		return "", "", errors.New("piway.yaml is missing or invalid")
+		return res, errors.New("piway.yaml is missing or invalid")
 	}
-	app = m.Name
+	res.app = m.Name
 	p.mu.Lock()
-	p.builds[b.ID].App = app
+	p.builds[b.ID].App = res.app
 	p.mu.Unlock()
 	if raw, err := os.ReadFile(filepath.Join(dir, "piway.yaml")); err == nil {
 		os.WriteFile(p.store.manifestPath(b.ID), raw, 0o644)
 	}
+	b.App = res.app
 	if m.Static != nil {
-		return app, "", errors.New("static sites need the Caddy integration (#24), which is not there yet")
+		res.site, err = p.siteSteps(ctx, m, b, dir, out)
+		return res, err
 	}
 
-	image = "piway/" + m.Name + ":" + shortCommit(b.Commit)
-	fmt.Fprintf(out, "\n==> Building %s\n", image)
-	if err := p.opts.Steps.Image(ctx, m, dir, image, out); err != nil {
-		return app, "", fmt.Errorf("build: %w", err)
+	res.image = "piway/" + m.Name + ":" + shortCommit(b.Commit)
+	fmt.Fprintf(out, "\n==> Building %s\n", res.image)
+	if err := p.opts.Steps.Image(ctx, m, dir, res.image, out); err != nil {
+		return result{app: res.app}, fmt.Errorf("build: %w", err)
 	}
 
-	b.App, b.Image = app, image
-	fmt.Fprintf(out, "\n==> Releasing %s\n", image)
+	b.Image = res.image
+	fmt.Fprintf(out, "\n==> Releasing %s\n", res.image)
 	if err := p.opts.Steps.Release(ctx, m, b, out); err != nil {
-		return app, image, fmt.Errorf("release: %w", err)
+		return res, fmt.Errorf("release: %w", err)
 	}
-	return app, image, nil
+	return res, nil
+}
+
+// siteSteps builds a static site (if it has a build step), copies it to a
+// directory of its own and serves it. It returns the site's id, the build
+// id its directory is named after, once the directory exists.
+func (p *Pipeline) siteSteps(ctx context.Context, m *manifest.Manifest, b Build, dir string, out io.Writer) (string, error) {
+	if m.Static.Build != nil {
+		fmt.Fprintf(out, "\n==> Building the site in %s\n", m.Static.Build.Image)
+		if err := p.opts.Steps.SiteBuild(ctx, m, dir, out); err != nil {
+			return "", fmt.Errorf("build: %w", err)
+		}
+	}
+	site := p.siteDir(m.Name, b.ID)
+	fmt.Fprintf(out, "\n==> Copying %s\n", m.Static.Dir)
+	st, err := copySite(dir, m.Static.Dir, site)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(out, "Copied %d files (%s)\n", st.files, sizeString(st.bytes))
+	for i, name := range st.skipped {
+		if i == 10 {
+			fmt.Fprintf(out, "... and %d more\n", len(st.skipped)-i)
+			break
+		}
+		fmt.Fprintf(out, "WARNING: skipped %s: not a regular file (symbolic links are not served)\n", name)
+	}
+	if !st.hasIndex {
+		fmt.Fprintf(out, "WARNING: %s has no index.html, so / answers 404\n", m.Static.Dir)
+	}
+
+	b.Site = b.ID
+	fmt.Fprintf(out, "\n==> Releasing the site\n")
+	if err := p.opts.Steps.ReleaseSite(ctx, m, b, site, out); err != nil {
+		return b.Site, fmt.Errorf("release: %w", err)
+	}
+	p.pruneSites(m.Name, b.Site, out)
+	return b.Site, nil
+}
+
+// rollbackSteps serves an earlier build again: its image, or its site.
+func (p *Pipeline) rollbackSteps(ctx context.Context, b Build, out io.Writer) (result, error) {
+	res := result{app: b.App, image: b.Image, site: b.Site}
+	m, err := manifest.Load(p.store.manifestPath(b.RollbackOf))
+	if err != nil {
+		return res, fmt.Errorf("piway.yaml of %s: %w", b.RollbackOf, err)
+	}
+	if b.Site != "" {
+		site := p.siteDir(m.Name, b.Site)
+		fmt.Fprintf(out, "==> Rolling %s back to the site of build %s (commit %s)\n", m.Name, b.RollbackOf, b.Commit)
+		if _, err := os.Stat(site); err != nil {
+			return res, fmt.Errorf("the site of build %s no longer exists (piway keeps the last %d per app)", b.Site, keepSites)
+		}
+		if err := p.opts.Steps.ReleaseSite(ctx, m, b, site, out); err != nil {
+			return res, fmt.Errorf("release: %w", err)
+		}
+		return res, nil
+	}
+	fmt.Fprintf(out, "==> Rolling %s back to %s (build %s, commit %s)\n", m.Name, b.Image, b.RollbackOf, b.Commit)
+	if err := p.opts.Steps.Release(ctx, m, b, out); err != nil {
+		return res, fmt.Errorf("release: %w", err)
+	}
+	return res, nil
+}
+
+func sizeString(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d bytes", n)
 }
 
 func shortCommit(c string) string {
@@ -358,8 +435,8 @@ func (p *Pipeline) liveLocked(app string) *Build {
 	return nil
 }
 
-// Rollback queues a release of the image the app ran before its current
-// one, without rebuilding. It goes through the same health check as a
+// Rollback queues a release of the image or site the app ran before its
+// current one, without rebuilding. It goes through the same health check as a
 // deploy, so a broken old version never replaces a working one.
 func (p *Pipeline) Rollback(app string) (Build, error) {
 	p.mu.Lock()
@@ -371,7 +448,7 @@ func (p *Pipeline) Rollback(app string) (Build, error) {
 	var target *Build
 	for i := len(p.order) - 1; i >= 0; i-- {
 		b := p.builds[p.order[i]]
-		if b.App == app && b.State == Succeeded && b.Image != cur.Image && b.Image != "" {
+		if b.App == app && b.State == Succeeded && b.artifact() != cur.artifact() && b.artifact() != "" {
 			if _, err := os.Stat(p.store.manifestPath(b.ID)); err == nil {
 				target = b
 				break
@@ -383,7 +460,7 @@ func (p *Pipeline) Rollback(app string) (Build, error) {
 	}
 	rb := &Build{
 		ID: p.newID(target.Commit), App: app, Repo: target.Repo, Branch: target.Branch,
-		Commit: target.Commit, CloneURL: target.CloneURL, Image: target.Image,
+		Commit: target.Commit, CloneURL: target.CloneURL, Image: target.Image, Site: target.Site,
 		Kind: KindRollback, RollbackOf: target.ID, State: Queued, Queued: p.opts.now(),
 	}
 	if err := p.enqueueLocked(rb); err != nil {
@@ -487,6 +564,45 @@ type App struct {
 	Live      *Build     `json:"live,omitempty"`      // what it runs: its latest successful build or rollback
 	Last      *Build     `json:"last,omitempty"`      // the latest build of any outcome
 	Container *Container `json:"container,omitempty"` // nil if none is running
+}
+
+// Site is a static site that serves an app.
+type Site struct {
+	App string
+	Dir string
+	SPA bool
+}
+
+// LiveSites returns the static sites that serve apps now, for serving them
+// again after piway restarts.
+func (p *Pipeline) LiveSites() []Site {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	seen := map[string]bool{}
+	var out []Site
+	for i := len(p.order) - 1; i >= 0; i-- {
+		b := p.builds[p.order[i]]
+		if b.App == "" || seen[b.App] || b.State != Succeeded {
+			continue
+		}
+		seen[b.App] = true
+		if b.Site == "" {
+			continue // a container app
+		}
+		// The manifest is saved under the id of the build that made the site.
+		m, err := manifest.Load(p.store.manifestPath(b.Site))
+		if err != nil || m.Static == nil {
+			p.log.Warn("cannot serve site", "app", b.App, "build", b.Site, "err", err)
+			continue
+		}
+		dir := p.siteDir(b.App, b.Site)
+		if _, err := os.Stat(dir); err != nil {
+			p.log.Warn("cannot serve site", "app", b.App, "err", err)
+			continue
+		}
+		out = append(out, Site{App: b.App, Dir: dir, SPA: m.Static.SPA})
+	}
+	return out
 }
 
 // Apps lists every app that has been built, by name, with what runs now.

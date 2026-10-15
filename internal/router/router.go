@@ -1,5 +1,6 @@
-// Package router owns each app's stable address and proxies it to whichever
-// container currently serves the app.
+// Package router owns each app's stable address and serves it from
+// whichever version of the app is current: a container it proxies to, or
+// a directory of static files (a static site).
 //
 // A deploy starts the new container on a port Docker picks, checks its
 // health there, and only then points the app's route at it: one atomic
@@ -20,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -35,10 +37,16 @@ type Router struct {
 }
 
 type route struct {
-	port   int
-	target atomic.Pointer[url.URL]
-	srv    *http.Server
-	done   chan struct{}
+	port    int
+	backend atomic.Pointer[backend]
+	srv     *http.Server
+	done    chan struct{}
+}
+
+// backend is what a route serves from. Swapping it is the version switch.
+type backend struct {
+	target string // the container's URL, or the site's directory
+	h      http.Handler
 }
 
 func New(log *slog.Logger) *Router {
@@ -73,16 +81,31 @@ func (r *Router) Set(app string, port int, target string) error {
 	if err != nil || u.Host == "" {
 		return fmt.Errorf("router: bad target %q", target)
 	}
+	return r.swap(app, port, &backend{target: target, h: r.proxy(app, u)})
+}
+
+// SetSite serves app's stable port from the static files in dir. With spa,
+// a GET for a path that does not exist gets dir/index.html, for client-side
+// routing.
+func (r *Router) SetSite(app string, port int, dir string, spa bool) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("router: site directory %q is not absolute", dir)
+	}
+	return r.swap(app, port, &backend{target: dir, h: siteHandler(dir, spa)})
+}
+
+// swap points app's route at b, creating the route if it has none.
+func (r *Router) swap(app string, port int, b *backend) error {
 	r.mu.Lock()
 	if rt, ok := r.routes[app]; ok {
 		defer r.mu.Unlock()
 		if rt.port != port {
 			return fmt.Errorf("router: %s already listens on %d", app, rt.port)
 		}
-		rt.target.Store(u)
+		rt.backend.Store(b)
 		return nil
 	}
-	if err := r.listen(app, port, u); err != nil {
+	if err := r.listen(app, port, b); err != nil {
 		r.mu.Unlock()
 		return err
 	}
@@ -92,15 +115,19 @@ func (r *Router) Set(app string, port int, target string) error {
 }
 
 // listen starts app's route; r.mu is held.
-func (r *Router) listen(app string, port int, u *url.URL) error {
+func (r *Router) listen(app string, port int, b *backend) error {
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return fmt.Errorf("router: %s: %w", app, err)
 	}
 	rt := &route{port: port, done: make(chan struct{})}
-	rt.target.Store(u)
+	rt.backend.Store(b)
 	rt.srv = &http.Server{
-		Handler:           r.proxy(app, rt),
+		// Read the backend per request, so a switch takes effect for the
+		// very next request without dropping the ones in flight.
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			rt.backend.Load().h.ServeHTTP(w, req)
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	r.routes[app] = rt
@@ -113,12 +140,10 @@ func (r *Router) listen(app string, port int, u *url.URL) error {
 	return nil
 }
 
-func (r *Router) proxy(app string, rt *route) http.Handler {
+func (r *Router) proxy(app string, target *url.URL) http.Handler {
 	return &httputil.ReverseProxy{
-		// Read the target per request, so a Set takes effect for the very
-		// next request without dropping the ones in flight.
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(rt.target.Load())
+			pr.SetURL(target)
 			pr.SetXForwarded()
 			pr.Out.Host = pr.In.Host
 		},
@@ -129,12 +154,13 @@ func (r *Router) proxy(app string, rt *route) http.Handler {
 	}
 }
 
-// Target returns where app's route points, or "" if it has none.
+// Target returns where app's route points: a container's URL, a site's
+// directory, or "" if the app has no route.
 func (r *Router) Target(app string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if rt, ok := r.routes[app]; ok {
-		return rt.target.Load().String()
+		return rt.backend.Load().target
 	}
 	return ""
 }

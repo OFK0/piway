@@ -31,10 +31,13 @@ run:
 type fakeSteps struct {
 	mu        sync.Mutex
 	manifest  string
-	started   chan string // commit, when Image begins
-	release   chan error  // Image returns the next value
-	released  []string    // images released, in order
-	imageFail error       // returned by Image instead of waiting, if set
+	started   chan string       // commit, when Image begins
+	release   chan error        // Image returns the next value
+	released  []string          // images released, in order
+	imageFail error             // returned by Image instead of waiting, if set
+	siteFiles map[string]string // written by Fetch next to piway.yaml
+	siteFail  error             // returned by SiteBuild, if set
+	siteDirs  []string          // directories ReleaseSite served, in order
 }
 
 func newFake() *fakeSteps {
@@ -45,6 +48,15 @@ func (f *fakeSteps) Fetch(_ context.Context, b Build, dir string, out io.Writer)
 	fmt.Fprintf(out, "fetched %s\n", b.Commit)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	for name, body := range f.siteFiles {
+		p := filepath.Join(dir, name)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if strings.HasPrefix(body, "->") {
+			os.Symlink(strings.TrimPrefix(body, "->"), p)
+			continue
+		}
+		os.WriteFile(p, []byte(body+" "+b.Commit), 0o644)
+	}
 	return os.WriteFile(filepath.Join(dir, "piway.yaml"), []byte(f.manifest), 0o644)
 }
 
@@ -67,6 +79,27 @@ func (f *fakeSteps) Release(_ context.Context, _ *manifest.Manifest, b Build, ou
 	f.mu.Lock()
 	f.released = append(f.released, b.Image)
 	f.mu.Unlock()
+	return nil
+}
+
+// SiteBuild writes <static.dir>/built.txt, or fails with siteFail.
+func (f *fakeSteps) SiteBuild(_ context.Context, m *manifest.Manifest, dir string, out io.Writer) error {
+	fmt.Fprintf(out, "site build in %s\n", m.Static.Build.Image)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.siteFail != nil {
+		return f.siteFail
+	}
+	os.MkdirAll(filepath.Join(dir, m.Static.Dir), 0o755)
+	return os.WriteFile(filepath.Join(dir, m.Static.Dir, "built.txt"), []byte("built"), 0o644)
+}
+
+func (f *fakeSteps) ReleaseSite(_ context.Context, m *manifest.Manifest, b Build, dir string, out io.Writer) error {
+	fmt.Fprintf(out, "released site %s\n", b.Site)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.released = append(f.released, "site:"+b.Site)
+	f.siteDirs = append(f.siteDirs, dir)
 	return nil
 }
 
