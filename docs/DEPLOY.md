@@ -63,7 +63,9 @@ or a Cloudflare Tunnel).
 | The event is `push` to `refs/heads/<branch>` of a listed repository | Otherwise `200 ignored` with the reason. |
 | The body is at most 5 MiB | Otherwise `413`. |
 
-A queued deploy answers `202 {"status":"queued"}`.
+A queued deploy answers `202 {"status":"queued"}`. If the deploy queue
+rejects it, piway answers `503` and releases the delivery ID so a redelivery
+can try again. Deliveries already queued are still treated as duplicates.
 
 ## What a deploy does
 
