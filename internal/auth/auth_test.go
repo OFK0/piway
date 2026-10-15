@@ -269,3 +269,67 @@ func TestLimiterMemoryIsBounded(t *testing.T) {
 		t.Errorf("%d clients tracked, max %d", len(l.clients), maxClients)
 	}
 }
+
+func doHeaders(h http.Handler, method, path, body, remote string, header map[string]string, cookie *http.Cookie) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.RemoteAddr = remote
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+func TestProxiedRequestsAreNotLocal(t *testing.T) {
+	h := handler(newEnv(t, false).a)
+	// "tailscale serve" or Caddy on the Pi: the connection is from loopback.
+	for _, header := range []map[string]string{
+		{"X-Forwarded-For": "100.64.0.7"},
+		{"Forwarded": "for=100.64.0.7"},
+		{"X-Real-Ip": "100.64.0.7"},
+		{"Tailscale-User-Login": "someone@example.com"},
+	} {
+		if w := doHeaders(h, "GET", "/api/v1/secret", "", "127.0.0.1:4000", header, nil); w.Code != http.StatusForbidden {
+			t.Errorf("proxied with %v and no password: %d, want 403", header, w.Code)
+		}
+	}
+}
+
+func TestBehindALocalProxy(t *testing.T) {
+	e := newEnv(t, true)
+	h := handler(e.a)
+	proxy := "127.0.0.1:4000"
+	viaTLS := map[string]string{"X-Forwarded-For": "100.64.0.7", "X-Forwarded-Proto": "https"}
+	c := sessionCookie(t, doHeaders(h, "POST", "/api/v1/login", `{"password":"`+pw+`"}`, proxy, viaTLS, nil))
+	if !c.Secure {
+		t.Error("cookie not Secure behind a proxy that terminated TLS")
+	}
+	// A client cannot claim HTTPS or another address by itself.
+	direct := sessionCookie(t, doHeaders(h, "POST", "/api/v1/login", `{"password":"`+pw+`"}`, lan, map[string]string{"X-Forwarded-Proto": "https"}, nil))
+	if direct.Secure {
+		t.Error("a remote client's X-Forwarded-Proto was trusted")
+	}
+
+	// Lockouts are per client behind the proxy, not one for everyone.
+	wrong := `{"password":"wrong password"}`
+	for range freeFails {
+		doHeaders(h, "POST", "/api/v1/login", wrong, proxy, map[string]string{"X-Forwarded-For": "100.64.0.7"}, nil)
+	}
+	if w := doHeaders(h, "POST", "/api/v1/login", `{"password":"`+pw+`"}`, proxy, map[string]string{"X-Forwarded-For": "100.64.0.7"}, nil); w.Code != http.StatusTooManyRequests {
+		t.Errorf("locked client: %d", w.Code)
+	}
+	if w := doHeaders(h, "POST", "/api/v1/login", `{"password":"`+pw+`"}`, proxy, map[string]string{"X-Forwarded-For": "100.64.0.8"}, nil); w.Code != 200 {
+		t.Errorf("another client behind the same proxy: %d", w.Code)
+	}
+	// A spoofed X-Forwarded-For from the LAN does not dodge its own lockout.
+	for range freeFails {
+		doHeaders(h, "POST", "/api/v1/login", wrong, lan, nil, nil)
+	}
+	if w := doHeaders(h, "POST", "/api/v1/login", `{"password":"`+pw+`"}`, lan, map[string]string{"X-Forwarded-For": "100.64.0.9"}, nil); w.Code != http.StatusTooManyRequests {
+		t.Errorf("LAN client with a forged X-Forwarded-For: %d, want 429", w.Code)
+	}
+}
