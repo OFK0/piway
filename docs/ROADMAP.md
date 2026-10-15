@@ -48,3 +48,8 @@ Each milestone maps to a GitHub milestone; each bullet is an issue.
 - MCP server in Go (stdio + HTTP transport)
 - Tools: `get_status`, `list_apps`, `deploy`, `restart_app`, `tail_logs`
 - Claude Code setup docs + demo
+
+## M7 — Install & docs
+- One-command install: `install.sh` and `piway setup` ([INSTALL.md](INSTALL.md))
+- `piway doctor`: check an installation and say how to fix it
+- Documentation site generated from `docs/`

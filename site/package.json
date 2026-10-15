@@ -1,0 +1,16 @@
+{
+  "name": "piway-site",
+  "private": true,
+  "type": "module",
+  "description": "The documentation site, built from ../docs",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build && cp ../install.sh ../web/public/favicon.svg .vitepress/dist/",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "vitepress": "^1.6.4"
+  }
+}
