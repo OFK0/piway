@@ -44,7 +44,7 @@ the Pi.
 | ---- | ----------------- | ------------ |
 | `get_status` | no | CPU load and temperature, throttling, memory and disk use, active alerts, how many apps are deployed. |
 | `list_apps` | no | Each app: repository, address, the commit it runs (container or static site), its latest build if that failed; and branches in `apps.yaml` never deployed. |
-| `tail_logs` | no | `app`: the last `lines` (default 100, at most 1000) of its running container. `build`: the build's state and the end of its log. |
+| `tail_logs` | no | `app`: the last `lines` (default 100, at most 1000) of its running container. `build`: the build's state and the end of its log; with `wait_seconds` (up to 300) it first waits for the build to finish. |
 | `deploy` | **yes** | Build and release the newest commit (or `commit`) of an `app`, or of a `repo` and `branch` in `apps.yaml`. Same as a push ([DEPLOY.md](DEPLOY.md#deploy-without-a-push)). |
 | `restart_app` | **yes** | A fresh container of the version that runs, without rebuilding or downtime. |
 | `rollback_app` | **yes** | The version the app ran before, after the same health check as a deploy. |
@@ -57,13 +57,15 @@ they would have done and that the user should confirm. Their
 annotations say `destructiveHint: true`, so clients that ask before such
 calls (Claude Code does, unless you allowed the tool) ask too. Builds run
 in the background: the answer is the build id, and `tail_logs` with
-`build` follows it until it says Deployed or Failed.
+`build` and `wait_seconds` waits for it to say Deployed or Failed.
 
 Arguments are checked strictly: an unknown or misspelled argument is an
 error the model can correct, not a silent default.
 
-Each result has a text summary for the model and the same data as
-`structuredContent` JSON. A failure (piway unreachable, a bad token) is a
+Results are text written for the model. `get_status` and `list_apps`
+also return the same data as `structuredContent` JSON; the others do
+not, because clients such as Claude Code give the model the JSON instead
+of the text when both are there, and their JSON would leave things out. A failure (piway unreachable, a bad token) is a
 tool result with `isError: true` and the reason, so the model can tell
 you what went wrong.
 
