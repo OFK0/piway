@@ -1,7 +1,10 @@
+import { SignOutIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
 import { Logo } from '@/components/logo'
+import { useSession } from '@/components/session-gate'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
@@ -9,6 +12,17 @@ const nav = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
   { href: '/apps', label: 'Apps', match: (p: string) => p.startsWith('/apps') || p.startsWith('/builds') },
 ]
+
+// Only with a password: in local mode there is nothing to sign out of.
+function SignOut() {
+  const ctx = useSession()
+  if (ctx?.session.mode !== 'password') return null
+  return (
+    <Button variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={() => void ctx.signOut()}>
+      <SignOutIcon />
+    </Button>
+  )
+}
 
 // Page frame: a hairline header with the brand and global controls, a
 // left-aligned content column, and a quiet footer.
@@ -47,6 +61,7 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
           <div className="ml-auto flex items-center gap-2">
             {props.actions}
             <ThemeToggle />
+            <SignOut />
           </div>
         </div>
       </header>

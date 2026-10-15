@@ -161,5 +161,5 @@ $ curl --cacert caddy-root.crt https://photos.local:8443/
 - Caddy's admin API has no authentication. It listens on `localhost`
   only, but any process on the Pi can reconfigure Caddy through it.
 - Caddy listens on every interface: published apps are reachable from the
-  LAN, which is the point. piway's dashboard and API are not behind Caddy
-  and still have no authentication (#28).
+  LAN, which is the point. piway's dashboard and API are not behind Caddy;
+  they need a password ([API.md](API.md#sign-in)).

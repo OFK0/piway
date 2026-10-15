@@ -2,11 +2,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -14,10 +16,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ofk0/piway/internal/agent"
+	"github.com/ofk0/piway/internal/auth"
 	"github.com/ofk0/piway/internal/caddy"
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/deploy"
@@ -31,6 +35,7 @@ import (
 	"github.com/ofk0/piway/internal/version"
 	"github.com/ofk0/piway/internal/webhook"
 	"github.com/ofk0/piway/internal/webui"
+	"golang.org/x/term"
 )
 
 func main() {
@@ -49,6 +54,12 @@ func main() {
 		return
 	case cfg.PrintConfig:
 		cfg.Print(os.Stdout)
+		return
+	case cfg.SetPassword:
+		if err := setPassword(cfg.PasswordFile); err != nil {
+			fmt.Fprintln(os.Stderr, "piway:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -166,8 +177,12 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	guard, err := openAuth(cfg, log)
+	if err != nil {
+		return err
+	}
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -197,6 +212,63 @@ func run(cfg config.Config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// openAuth sets up sign-in. Sessions are kept next to the metrics history.
+func openAuth(cfg config.Config, log *slog.Logger) (*auth.Auth, error) {
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		dataDir = config.DefaultDataDir()
+	}
+	a, err := auth.New(auth.Options{
+		PasswordFile: cfg.PasswordFile,
+		SessionsFile: filepath.Join(dataDir, "sessions.json"),
+		Logger:       log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+	if a.Mode() == "local" {
+		log.Warn("no dashboard password: the API answers only this machine (set one with piway -set-password)", "password_file", cfg.PasswordFile)
+	}
+	return a, nil
+}
+
+// setPassword asks for a new password twice on the terminal, or reads one
+// line from standard input when it is not a terminal (for scripts).
+func setPassword(file string) error {
+	var pw string
+	if fd := int(os.Stdin.Fd()); term.IsTerminal(fd) {
+		read := func(prompt string) (string, error) {
+			fmt.Fprint(os.Stderr, prompt)
+			b, err := term.ReadPassword(fd)
+			fmt.Fprintln(os.Stderr)
+			return string(b), err
+		}
+		first, err := read("New dashboard password: ")
+		if err != nil {
+			return err
+		}
+		second, err := read("Again: ")
+		if err != nil {
+			return err
+		}
+		if first != second {
+			return errors.New("the passwords differ; nothing changed")
+		}
+		pw = first
+	} else {
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		pw = strings.TrimRight(line, "\r\n")
+	}
+	if err := auth.SetPassword(file, pw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Password saved to %s. Signed-in browsers must sign in again.\n", file)
+	return nil
 }
 
 // openHistory opens the metrics history in cfg.DataDir, or returns nil when
