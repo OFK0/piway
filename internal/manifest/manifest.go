@@ -61,7 +61,7 @@ type Health struct {
 	StartPeriod time.Duration
 }
 
-// Static describes a static site served by Caddy.
+// Static describes a static site, served by piway from a directory.
 type Static struct {
 	Dir   string
 	SPA   bool

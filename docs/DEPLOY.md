@@ -70,8 +70,8 @@ A queued deploy answers `202 {"status":"queued"}`.
 1. **Fetch** exactly the pushed commit, shallowly (`git fetch --depth 1`).
    Git never prompts: a private repository fails instead of hanging.
 2. **Read `piway.yaml`** ([MANIFEST.md](MANIFEST.md)). An invalid manifest
-   fails the build with its problems in the log. Static sites do not
-   deploy yet (#76).
+   fails the build with its problems in the log. Static sites go on
+   [differently](#static-sites) from here.
 3. **Build** the image `piway/<name>:<commit>` with BuildKit for
    `linux/arm64`, natively on the Pi.
 4. **Release** without downtime (blue/green on one host):
@@ -89,12 +89,39 @@ A queued deploy answers `202 {"status":"queued"}`.
 
 Each app has a stable address, `127.0.0.1:<port>`, with the port derived
 from its name (20000–29999). piway listens there itself and proxies to
-whichever container is current; switching versions only changes where the
-proxy points, so no request is refused. With `proxy_domain` set, Caddy
+whichever version is current, a container or a static site; switching
+versions only changes where the route points, so no request is refused. With `proxy_domain` set, Caddy
 serves `<name>.<domain>` from this address ([PROXY.md](PROXY.md)).
 
 The trade-off: apps are reachable only while piway runs. When piway
-starts, it finds the running app containers and serves them again.
+starts, it finds the running app containers and serves them again, and
+serves each static site's live version again.
+
+### Static sites
+
+An app whose `piway.yaml` has `static:` is served by piway itself from a
+directory; no container keeps running for it.
+
+1. **Build** (only with `static.build`): run `static.build.command` with
+   `sh -c` in `static.build.image`, with the checkout mounted as the
+   working directory. The container is removed when the command ends.
+   It can reach the network (for `npm ci`), and with rootless Docker it
+   runs as your user, not root.
+2. **Copy** `static.dir` to its own directory,
+   `~/.local/state/piway/deploys/sites/<name>/<build id>/`. Only
+   directories and regular files are copied: symbolic links are skipped
+   with a warning in the log, and `static.dir` itself must resolve inside
+   the repository, so a link cannot make piway serve other files on the
+   Pi. `.git` is left out.
+3. **Release**: switch the app's route to the new directory in one step.
+   If a container served the app before (it used to be a container app),
+   it is stopped after 2 seconds and removed. The 3 newest sites per app
+   are kept.
+
+Files are served with `Content-Type` from their extension, `Last-Modified`,
+range requests and `index.html` for directories. With `static.spa: true`,
+a `GET` for a path that does not exist gets `/index.html`, for apps that
+route in the browser. Otherwise it is a `404`.
 
 ### Health checks
 
@@ -112,9 +139,10 @@ curl -s -X POST localhost:8080/api/v1/apps/<name>/rollback
 
 re-releases the image the app ran before its current one, with the
 `piway.yaml` it was built with: no fetch, no rebuild, the same health check
-and switch as a deploy. It is queued and logged like a build (`"kind":
+and switch as a deploy. For a static site it serves the previous site's
+directory again. It is queued and logged like a build (`"kind":
 "rollback"`). Rolling back twice returns to the newer version. Only the
-last 3 images per app are kept.
+last 3 images and sites per app are kept.
 
 ### Queue
 

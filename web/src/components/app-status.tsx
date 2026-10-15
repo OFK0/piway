@@ -11,7 +11,8 @@ export const isBusy = (a: AppInfo) => a.last?.state === 'queued' || a.last?.stat
 // it up? A container that should run but does not is the one alarm.
 export function AppStatus({ app }: { app: AppInfo }) {
   if (app.last && isBusy(app)) return <BuildState build={app.last} />
-  if (app.container?.state === 'running') {
+  // piway serves a static site itself: it is up whenever piway is.
+  if (app.container?.state === 'running' || app.live?.site) {
     return (
       <Badge variant="secondary">
         <CheckCircleIcon data-icon="inline-start" />

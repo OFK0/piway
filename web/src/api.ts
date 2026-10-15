@@ -136,6 +136,8 @@ export interface Build {
   kind?: 'rollback'
   rollback_of?: string
   image?: string
+  /** Set for a static site: the build whose copy of the site this one serves. */
+  site?: string
   error?: string
   queued_at: string
   started_at?: string

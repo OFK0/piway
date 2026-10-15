@@ -93,7 +93,11 @@ function LiveCard({ app, now }: { app: AppInfo; now: number }) {
               {app.live.kind === 'rollback' ? 'Rolled back' : 'Deployed'}{' '}
               {ago(app.live.finished_at ?? app.live.queued_at, now)}
             </span>
-            {app.container?.image && <code className="type-code text-muted-foreground">{app.container.image}</code>}
+            {app.live.site ? (
+              <span className="text-muted-foreground">Static site</span>
+            ) : (
+              app.container?.image && <code className="type-code text-muted-foreground">{app.container.image}</code>
+            )}
           </>
         ) : (
           <span className="text-muted-foreground">No successful deploy yet.</span>

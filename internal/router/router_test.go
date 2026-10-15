@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,7 +26,7 @@ func freePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-func backend(body string) *httptest.Server {
+func upstream(body string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s %s %s", body, r.Host, r.Header.Get("X-Forwarded-For"))
 	}))
@@ -48,7 +50,7 @@ func newRouter(t *testing.T) *Router {
 }
 
 func TestProxiesAndSwitches(t *testing.T) {
-	blue, green := backend("blue"), backend("green")
+	blue, green := upstream("blue"), upstream("green")
 	defer blue.Close()
 	defer green.Close()
 	r := newRouter(t)
@@ -77,7 +79,7 @@ func TestProxiesAndSwitches(t *testing.T) {
 
 // The point of the router: switching under load drops no requests.
 func TestSwitchUnderLoadDropsNothing(t *testing.T) {
-	blue, green := backend("blue"), backend("green")
+	blue, green := upstream("blue"), upstream("green")
 	defer blue.Close()
 	defer green.Close()
 	r := newRouter(t)
@@ -131,7 +133,7 @@ func TestSwitchUnderLoadDropsNothing(t *testing.T) {
 }
 
 func TestBadGatewayWhenTargetDown(t *testing.T) {
-	gone := backend("x")
+	gone := upstream("x")
 	gone.Close()
 	r := newRouter(t)
 	port := freePort(t)
@@ -165,7 +167,7 @@ func TestSetErrors(t *testing.T) {
 }
 
 func TestOnChangeAndPorts(t *testing.T) {
-	blue, green := backend("blue"), backend("green")
+	blue, green := upstream("blue"), upstream("green")
 	defer blue.Close()
 	defer green.Close()
 	r := newRouter(t)
@@ -192,5 +194,98 @@ func TestOnChangeAndPorts(t *testing.T) {
 	r.Remove("web")
 	if n := changes.Load(); n != 2 || len(r.Ports()) != 0 {
 		t.Errorf("%d changes, ports %v after removing; want 2 and none", n, r.Ports())
+	}
+}
+
+func getPath(t *testing.T, port int, path string) (int, string) {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%s", port, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+func site(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, body := range files {
+		p := filepath.Join(dir, name)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestServesSites(t *testing.T) {
+	dir := site(t, map[string]string{"index.html": "home", "css/app.css": "body{}"})
+	r := newRouter(t)
+	port := freePort(t)
+	if err := r.SetSite("blog", port, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{"/": "home", "/css/app.css": "body{}"} {
+		if code, body := getPath(t, port, path); code != 200 || body != want {
+			t.Errorf("GET %s = %d %q, want 200 %q", path, code, body, want)
+		}
+	}
+	if code, _ := getPath(t, port, "/posts/1"); code != http.StatusNotFound {
+		t.Errorf("missing path without spa: %d, want 404", code)
+	}
+	if code, _ := getPath(t, port, "/../../etc/passwd"); code != http.StatusNotFound {
+		t.Errorf("path outside the site: %d, want 404", code)
+	}
+	if r.Target("blog") != dir {
+		t.Errorf("Target = %q, want the directory", r.Target("blog"))
+	}
+}
+
+func TestSPAFallback(t *testing.T) {
+	dir := site(t, map[string]string{"index.html": "app shell", "app.js": "js"})
+	r := newRouter(t)
+	port := freePort(t)
+	if err := r.SetSite("web", port, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{"/posts/1": "app shell", "/app.js": "js", "/": "app shell"} {
+		if code, body := getPath(t, port, path); code != 200 || body != want {
+			t.Errorf("GET %s = %d %q, want 200 %q", path, code, body, want)
+		}
+	}
+}
+
+func TestSwitchBetweenContainerAndSite(t *testing.T) {
+	blue := upstream("blue")
+	defer blue.Close()
+	dir := site(t, map[string]string{"index.html": "static"})
+	r := newRouter(t)
+	var changes atomic.Int32
+	r.OnChange(func() { changes.Add(1) })
+	port := freePort(t)
+
+	if err := r.Set("app", port, blue.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetSite("app", port, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := getPath(t, port, "/"); code != 200 || body != "static" {
+		t.Errorf("after switching to the site: %d %q", code, body)
+	}
+	if err := r.Set("app", port, blue.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := get(t, port); !strings.HasPrefix(body, "blue") {
+		t.Errorf("after switching back: %q", body)
+	}
+	if changes.Load() != 1 {
+		t.Errorf("%d changes, want 1: switching versions is not a new route", changes.Load())
+	}
+	if err := r.SetSite("app", port, "relative/dir", false); err == nil {
+		t.Error("accepted a relative site directory")
 	}
 }

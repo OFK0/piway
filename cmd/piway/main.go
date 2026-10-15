@@ -335,6 +335,11 @@ func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router,
 	if err := steps.Restore(ctx, p.Live); err != nil {
 		log.Warn("restore app routes", "err", err)
 	}
+	for _, site := range p.LiveSites() {
+		if err := steps.ServeSite(site); err != nil {
+			log.Warn("restore site", "app", site.App, "err", err)
+		}
+	}
 	log.Info("deploys enabled", "docker", sock)
 	return p, nil
 }

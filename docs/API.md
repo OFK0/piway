@@ -217,7 +217,9 @@ deploys are off (no Docker daemon).
 
 `kind` is `"rollback"` for a rollback (absent for a push).
 `state` is `queued`, `running`, `succeeded`, `failed` or `cancelled`;
-`error` explains the last two. `app` and `image` appear once known.
+`error` explains the last two. `app` and `image` appear once known. A
+static site has no `image`; its `site` is the id of the build whose copy
+of the site it serves (its own, or for a rollback the earlier one).
 
 An `App`:
 

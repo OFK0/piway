@@ -9,8 +9,9 @@ An app is one of two kinds:
 
 - **Container app** (`build` + `run`): piway builds an arm64 image from a
   Dockerfile, runs it, and proxies `<name>.<domain>` to the port it listens on.
-- **Static site** (`static`): piway optionally runs a build command, then
-  Caddy serves the resulting directory directly. No container keeps running.
+- **Static site** (`static`): piway optionally runs a build command in a
+  throwaway container, then serves the resulting directory itself. No
+  container keeps running ([DEPLOY.md](DEPLOY.md#static-sites)).
 
 ## Examples
 

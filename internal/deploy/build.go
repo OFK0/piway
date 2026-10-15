@@ -42,13 +42,25 @@ type Build struct {
 	State    State  `json:"state"`
 	// Kind is "rollback" for a rollback to RollbackOf's image; empty for a
 	// build from a push.
-	Kind       string    `json:"kind,omitempty"`
-	RollbackOf string    `json:"rollback_of,omitempty"`
-	Image      string    `json:"image,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	Queued     time.Time `json:"queued_at"`
-	Started    time.Time `json:"started_at,omitzero"`
-	Finished   time.Time `json:"finished_at,omitzero"`
+	Kind       string `json:"kind,omitempty"`
+	RollbackOf string `json:"rollback_of,omitempty"`
+	Image      string `json:"image,omitempty"`
+	// Site is set for a static site: the id of the build whose copy of the
+	// site this build serves (its own, or the one a rollback returns to).
+	Site     string    `json:"site,omitempty"`
+	Error    string    `json:"error,omitempty"`
+	Queued   time.Time `json:"queued_at"`
+	Started  time.Time `json:"started_at,omitzero"`
+	Finished time.Time `json:"finished_at,omitzero"`
+}
+
+// artifact identifies what a build serves, so a rollback can find an
+// earlier version that differs: its image, or the commit of its site.
+func (b *Build) artifact() string {
+	if b.Site != "" {
+		return "site@" + b.Commit
+	}
+	return b.Image
 }
 
 // key groups builds that replace each other: the same branch of the same
