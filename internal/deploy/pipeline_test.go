@@ -398,3 +398,58 @@ func TestRollback(t *testing.T) {
 		t.Errorf("live after rollback = %q", h.p.Live("guestbook"))
 	}
 }
+
+type fakeRuntime map[string]Container
+
+func (f fakeRuntime) Containers(context.Context) (map[string]Container, error) { return f, nil }
+
+func TestAppsAndRedeploy(t *testing.T) {
+	rt := fakeRuntime{"guestbook": {Name: "piway-guestbook-x", State: "running", Image: "piway/guestbook:aaaaaaaaaaaa"}}
+	h := start(t, t.TempDir(), Options{Runtime: rt})
+	if apps, _ := h.p.Apps(context.Background()); len(apps) != 0 {
+		t.Errorf("apps before any build: %+v", apps)
+	}
+	if _, err := h.p.Redeploy("guestbook"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("redeploy unknown app: %v", err)
+	}
+
+	good := push(t, h.p, "aaaaaaaaaaaa1")
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, good, Succeeded)
+	h.steps.imageFail = errors.New("compile error")
+	bad := push(t, h.p, "bbbbbbbbbbbb2")
+	waitState(t, h.p, bad, Failed)
+
+	apps, err := h.p.Apps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 {
+		t.Fatalf("apps = %+v", apps)
+	}
+	a := apps[0]
+	if a.Name != "guestbook" || a.Repo != "OFK0/guestbook" || a.Port != HostPort("guestbook") {
+		t.Errorf("app = %+v", a)
+	}
+	if a.Live == nil || a.Live.ID != good || a.Last == nil || a.Last.ID != bad || a.Last.State != Failed {
+		t.Errorf("live/last = %+v / %+v; want the good build live and the failed one last", a.Live, a.Last)
+	}
+	if a.Container == nil || a.Container.State != "running" {
+		t.Errorf("container = %+v", a.Container)
+	}
+
+	h.steps.imageFail = nil
+	rb, err := h.p.Redeploy("guestbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb.Commit != "aaaaaaaaaaaa1" || rb.Pusher != "dashboard" || rb.Kind != "" {
+		t.Errorf("redeploy = %+v, want a fresh build of the live commit", rb)
+	}
+	if img := started(t, h.steps); img != "piway/guestbook:aaaaaaaaaaaa" {
+		t.Errorf("redeploy built %q", img)
+	}
+	h.steps.release <- nil
+	waitState(t, h.p, rb.ID, Succeeded)
+}

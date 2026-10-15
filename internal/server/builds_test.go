@@ -59,6 +59,17 @@ func (f *fakeBuilds) Rollback(app string) (deploy.Build, error) {
 	return deploy.Build{}, deploy.ErrNotFound
 }
 
+func (f *fakeBuilds) Redeploy(app string) (deploy.Build, error) {
+	if app != "guestbook" {
+		return deploy.Build{}, deploy.ErrNotFound
+	}
+	return deploy.Build{ID: "rd1", App: app, State: deploy.Queued, Pusher: "dashboard"}, nil
+}
+
+func (f *fakeBuilds) Apps(context.Context) ([]deploy.App, error) {
+	return []deploy.App{{Name: "guestbook", Port: 25000, Container: &deploy.Container{State: "running"}}}, nil
+}
+
 func buildsServer(t *testing.T, b Builds) http.Handler {
 	t.Helper()
 	h, err := New(Deps{Snapshots: stubSource{}, Builds: b})
@@ -151,5 +162,19 @@ func TestRollbackAPI(t *testing.T) {
 	}
 	if rec := serve(t, h, "POST", "/api/v1/apps/nope/rollback"); rec.Code != 404 {
 		t.Errorf("unknown app: %d", rec.Code)
+	}
+}
+
+func TestAppsAPI(t *testing.T) {
+	h := buildsServer(t, &fakeBuilds{})
+	rec := serve(t, h, "GET", "/api/v1/apps")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"name":"guestbook"`) || !strings.Contains(rec.Body.String(), `"state":"running"`) {
+		t.Errorf("apps: %d %s", rec.Code, rec.Body)
+	}
+	if rec := serve(t, h, "POST", "/api/v1/apps/guestbook/redeploy"); rec.Code != 202 || !strings.Contains(rec.Body.String(), `"pusher":"dashboard"`) {
+		t.Errorf("redeploy: %d %s", rec.Code, rec.Body)
+	}
+	if rec := serve(t, h, "POST", "/api/v1/apps/nope/redeploy"); rec.Code != 404 {
+		t.Errorf("redeploy unknown: %d", rec.Code)
 	}
 }
