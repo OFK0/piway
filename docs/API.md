@@ -196,7 +196,7 @@ Recorded history of one metric (docs/STORAGE.md), averaged into buckets.
 | `name` | required | A series name. Without labels (`network_receive_bytes_per_second`) it also matches every labelled variant (`…{interface="eth0"}`), so a client can sum or compare them. With labels it matches exactly. |
 | `from` | `to` − 1h | RFC 3339 (`2026-10-14T10:00:00Z`), Unix milliseconds, or relative to now (`-24h`). |
 | `to` | now | Same formats. The range is half-open: `[from, to)`. |
-| `step` | range / 300 | Bucket size as a duration (`5m`). Raised so no series has more than 1000 points, and to at least the resolution read. |
+| `step` | range / 300 | Bucket size as a duration (`5m`). Raised so no series has more than 1000 points, including partial boundary buckets, and rounded up to the resolution read. |
 
 The server picks the resolution:
 
