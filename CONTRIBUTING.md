@@ -86,7 +86,8 @@ changes that span the whole repository.
 | `recorder` | `internal/recorder` (snapshots to the store) |
 | `history` | `internal/history` (rollups and retention) |
 | `manifest` | `internal/manifest`, `docs/MANIFEST.md` (`piway.yaml`) |
-| `setup` | `internal/setup` (`piway doctor`, `piway setup`) |
+| `setup` | `internal/setup` (`piway doctor`, `piway setup`), `install.sh` |
+| `site` | `site/` (the documentation site built from `docs/`) |
 
 Add new scopes here when a new package or area appears.
 

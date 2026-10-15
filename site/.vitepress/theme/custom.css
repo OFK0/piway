@@ -1,0 +1,32 @@
+/* piway's brand (web/DESIGN.md): ink and raspberry, IBM Plex. */
+:root {
+  --vp-font-family-base: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --vp-c-brand-1: #cd2355;
+  --vp-c-brand-2: #b01e49;
+  --vp-c-brand-3: #cd2355;
+  --vp-c-brand-soft: rgba(205, 35, 85, 0.12);
+  --vp-button-brand-bg: #000000;
+  --vp-button-brand-hover-bg: #262626;
+  --vp-button-brand-active-bg: #000000;
+  --vp-home-hero-name-color: var(--vp-c-text-1);
+}
+.dark {
+  --vp-c-brand-1: #e5476f;
+  --vp-c-brand-2: #ec6f8e;
+  --vp-c-brand-3: #e5476f;
+  --vp-c-brand-soft: rgba(229, 71, 111, 0.16);
+  --vp-button-brand-bg: #ffffff;
+  --vp-button-brand-text: #000000;
+  --vp-button-brand-hover-bg: #e5e5e5;
+  --vp-button-brand-hover-text: #000000;
+  --vp-button-brand-active-bg: #ffffff;
+  --vp-button-brand-active-text: #000000;
+}
+/* Sharp, like the dashboard. */
+.VPButton,
+.vp-doc div[class*='language-'],
+.custom-block,
+.VPFeature {
+  border-radius: 0 !important;
+}
