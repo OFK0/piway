@@ -30,7 +30,11 @@ type Deps struct {
 	History   SeriesQuerier
 	Webhooks  http.Handler // GitHub webhooks (internal/webhook)
 	Builds    Builds
-	UI        fs.FS
+	Repos     Repos // nil: the repository list is not editable
+	// WebhookSecretSet tells the dashboard whether GitHub deliveries can
+	// be verified at all.
+	WebhookSecretSet bool
+	UI               fs.FS
 	// Auth guards the API; nil leaves it open (tests).
 	Auth   *auth.Auth
 	Alerts Alerts
@@ -71,6 +75,7 @@ func New(d Deps) (http.Handler, error) {
 		d.Push.Routes(api, func(h http.Handler) http.Handler { return h }) // api is protected as a whole
 	}
 	buildRoutes(api, d.Builds)
+	repoRoutes(api, d.Repos, d.Builds, d.WebhookSecretSet)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,
 	// POST /api/v1/snapshot.

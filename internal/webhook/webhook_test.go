@@ -66,7 +66,7 @@ func send(t *testing.T, h http.Handler, d delivery) (int, response) {
 }
 
 func newHandler(d Deployer) *Handler {
-	return New(secret, []Target{{Repo: "OFK0/guestbook", Branch: "main"}}, d, slog.New(slog.DiscardHandler))
+	return New(secret, StaticTargets{{Repo: "OFK0/guestbook", Branch: "main"}}, d, slog.New(slog.DiscardHandler))
 }
 
 func TestPushDeploys(t *testing.T) {
@@ -217,7 +217,7 @@ func TestBodyLimit(t *testing.T) {
 
 func TestDisabledWithoutSecret(t *testing.T) {
 	rec := &recorder{}
-	h := New("", []Target{{Repo: "OFK0/guestbook", Branch: "main"}}, rec, slog.New(slog.DiscardHandler))
+	h := New("", StaticTargets{{Repo: "OFK0/guestbook", Branch: "main"}}, rec, slog.New(slog.DiscardHandler))
 	body := pushBody("OFK0/guestbook", "refs/heads/main", "abc")
 	// Even a body "signed" with the empty secret must not deploy.
 	code, _ := send(t, h, delivery{"push", "d", sign("", body), body})

@@ -7,8 +7,22 @@ Docker daemon piway logs the requests and the build API answers `503`.
 
 ## 1. Choose what deploys
 
-List the repositories and branches in `apps_file`
-(`~/.config/piway/apps.yaml` by default):
+Add the repository from the dashboard (Apps, **Add repository**) or the
+command line:
+
+```sh
+piway repo add OFK0/guestbook            # branch main
+piway repo add OFK0/blog -branch release
+piway repo list
+piway repo remove OFK0/blog              # every branch; -branch to pick one
+```
+
+A running piway picks the change up within a moment; there is nothing to
+restart. Removing a repository stops deploys from it. The app it built keeps
+running with its data.
+
+Both write `apps_file` (`~/.config/piway/apps.yaml` by default), which stays
+the source of truth, so you can also edit it by hand:
 
 ```yaml
 deploy:
@@ -19,8 +33,9 @@ deploy:
 ```
 
 Pushes to any other repository or branch are acknowledged and ignored, as
-are tags and branch deletions. Unknown keys and duplicates are errors at
-startup. Restart piway after editing the file.
+are tags and branch deletions. Unknown keys and duplicates are errors. A hand
+edit that does not parse is ignored, with a warning in piway's log, until it is
+fixed; piway keeps deploying from the last good list.
 
 ## 2. Set a secret
 

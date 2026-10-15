@@ -356,6 +356,19 @@ it, present only with `proxy_domain` set ([PROXY.md](PROXY.md)). `live`
 is the `Build` serving now (its latest successful build or rollback),
 `last` the latest of any outcome; `container` is absent when none runs.
 
+## Repositories
+
+The repositories that deploy on push, as listed in `apps.yaml`. Changes are
+written to that file (comments and ordering kept) and apply at once, without a
+restart; editing the file by hand is picked up the same way. These work even
+when deploys are off.
+
+| Endpoint | Meaning |
+|---|---|
+| `GET /api/v1/repos` | `{"repos": [{"repo", "branch", "app"}…], "webhook": {"path", "configured"}}`. `app` is set once the branch was built; `configured` says whether `webhook_secret` is set. |
+| `POST /api/v1/repos` | Body `{"repo": "owner/name", "branch": "main"}` (branch defaults to `main`). `201`; `400` for a bad name; `409` if already listed. |
+| `DELETE /api/v1/repos?repo=owner/name&branch=main` | Stops deploying. Without `branch`, every branch of the repository goes. `404` if not listed. Running apps and their data are untouched. |
+
 ## `GET /api/v1/stream` (WebSocket)
 
 A one-way live stream of snapshots. Each text message is exactly the body of

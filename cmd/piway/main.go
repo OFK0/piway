@@ -48,6 +48,8 @@ func main() {
 			os.Exit(runMCP(os.Args[2:]))
 		case "doctor":
 			os.Exit(runDoctor(os.Args[2:]))
+		case "repo":
+			os.Exit(runRepo(os.Args[2:]))
 		case "setup":
 			os.Exit(runSetup(os.Args[2:]))
 		case "uninstall":
@@ -175,7 +177,11 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	pipeline, err := openPipeline(ctx, cfg, routes, proxy, alerts, log)
+	repos, err := webhook.OpenStore(cfg.AppsFile, log)
+	if err != nil {
+		return err
+	}
+	pipeline, err := openPipeline(ctx, cfg, repos, routes, proxy, alerts, log)
 	if err != nil {
 		return err
 	}
@@ -199,10 +205,7 @@ func run(cfg config.Config) error {
 		<-pipelineDone
 	}()
 
-	hooks, err := openWebhooks(cfg, deployer, log)
-	if err != nil {
-		return err
-	}
+	hooks := openWebhooks(cfg, repos, deployer, log)
 	guard, err := openAuth(cfg, log)
 	if err != nil {
 		return err
@@ -213,7 +216,7 @@ func run(cfg config.Config) error {
 		}
 	}()
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, UI: ui, Auth: guard, Alerts: alerts, Push: notifier,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, WebhookSecretSet: cfg.WebhookSecret != "", UI: ui, Auth: guard, Alerts: alerts, Push: notifier,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -415,21 +418,17 @@ func openHistory(cfg config.Config, log *slog.Logger) (*history.History, error) 
 }
 
 // openWebhooks builds the GitHub webhook handler from webhook_secret and
-// the deploy targets in apps_file.
-func openWebhooks(cfg config.Config, d webhook.Deployer, log *slog.Logger) (http.Handler, error) {
-	targets, err := webhook.LoadTargets(cfg.AppsFile)
-	if err != nil {
-		return nil, err
-	}
-	switch {
+// the deploy targets in repos.
+func openWebhooks(cfg config.Config, repos *webhook.Store, d webhook.Deployer, log *slog.Logger) http.Handler {
+	switch n := len(repos.Targets()); {
 	case cfg.WebhookSecret == "":
 		log.Info("GitHub webhooks disabled (webhook_secret is empty)")
-	case len(targets) == 0:
+	case n == 0:
 		log.Warn("GitHub webhooks enabled, but no deploy targets", "apps_file", cfg.AppsFile)
 	default:
-		log.Info("GitHub webhooks enabled", "targets", len(targets))
+		log.Info("GitHub webhooks enabled", "targets", n)
 	}
-	return webhook.New(cfg.WebhookSecret, targets, d, log), nil
+	return webhook.New(cfg.WebhookSecret, repos, d, log)
 }
 
 // logDeployer records deploy requests when deploys are off (no Docker).
@@ -494,7 +493,7 @@ func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, lo
 
 // openPipeline starts the build pipeline if a Docker daemon is reachable,
 // and returns nil (deploys off) otherwise.
-func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, log *slog.Logger) (*deploy.Pipeline, error) {
+func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSource, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, log *slog.Logger) (*deploy.Pipeline, error) {
 	sock, err := docker.SocketPath(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -513,12 +512,8 @@ func openPipeline(ctx context.Context, cfg config.Config, routes *router.Router,
 		DockerHost: "unix://" + sock,
 		SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
 	}
-	targets, err := webhook.LoadTargets(cfg.AppsFile)
-	if err != nil {
-		return nil, err
-	}
 	opts := deploy.Options{
-		Targets: targets,
+		Targets: repos,
 		Dir:     filepath.Join(dataDir, "deploys"),
 		Steps:   steps,
 		Runtime: steps,

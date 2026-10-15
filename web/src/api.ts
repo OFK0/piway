@@ -233,3 +233,32 @@ export interface DeployTarget {
 }
 export const fetchTargets = (signal?: AbortSignal) =>
   deployJSON<{ targets: DeployTarget[] }>('/api/v1/targets', { signal }).then((r) => r.targets)
+
+// --- Repositories (docs/API.md › /api/v1/repos) ----------------------------
+
+export interface Repo {
+  repo: string
+  branch: string
+  /** The app this branch became, once it has been built. */
+  app?: string
+}
+export interface ReposResponse {
+  repos: Repo[]
+  webhook: { path: string; configured: boolean }
+}
+export const fetchRepos = (signal?: AbortSignal) => getJSON<ReposResponse>('/api/v1/repos', signal)
+
+async function repoRequest(path: string, init: RequestInit): Promise<void> {
+  const res = await fetch(path, init)
+  const body = await res.json().catch(() => null)
+  if (needsSignIn(res.status)) notifySignedOut()
+  if (!res.ok) throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
+}
+export const addRepo = (repo: string, branch: string) =>
+  repoRequest('/api/v1/repos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, branch }),
+  })
+export const removeRepo = (repo: string, branch: string) =>
+  repoRequest(`/api/v1/repos?${new URLSearchParams({ repo, branch })}`, { method: 'DELETE' })

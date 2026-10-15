@@ -6,6 +6,7 @@ import { AppActions } from '@/components/app-actions'
 import { AppAddress } from '@/components/app-address'
 import { AppShell } from '@/components/app-shell'
 import { AppStatus, isBusy } from '@/components/app-status'
+import { ReposCard } from '@/components/repos-card'
 import { DeploysOff, NoApps } from '@/components/deploys-off'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardContent } from '@/components/ui/card'
@@ -27,6 +28,7 @@ export default function AppsPage() {
         <h1 className="type-display">Apps</h1>
         <p className="text-muted-foreground">Deployed from git push, one build at a time.</p>
       </div>
+      <ReposCard onChange={apps.reload} />
       {apps.error instanceof DeploysDisabledError ? (
         <DeploysOff reason={apps.error.message} />
       ) : apps.error && !apps.data ? (
