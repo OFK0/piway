@@ -44,7 +44,8 @@ function useRange(): [Range, (r: Range) => void] {
     const url = new URL(window.location.href)
     if (r === '5m') url.searchParams.delete('range')
     else url.searchParams.set('range', r)
-    window.history.replaceState(null, '', url)
+    // Keep the entry's state: navigation stores the scroll position there.
+    window.history.replaceState(window.history.state, '', url)
   }, [])
   return [range, update]
 }
