@@ -54,6 +54,42 @@ To change settings, copy `deploy/config.example.yaml` to
 [docs/CONFIG.md](docs/CONFIG.md) for the full list, the `PIWAY_*` environment
 variables, and the precedence rules.
 
+## Use it from Claude Code
+
+piway is an [MCP](https://modelcontextprotocol.io) server, so Claude Code
+can check on the Pi and deploy to it for you:
+
+![Claude Code asks piway how the Pi is doing, then deploys a new commit and waits for it to go live](docs/demo/claude-code.gif)
+
+*A replay of a real session against a test instance on a Pi 4: the prompts,
+tool calls and answers are the recorded ones, shown in order.*
+
+1. In the dashboard, open **Settings → API tokens** and create a token
+   named `claude-code`. It is shown once.
+2. Add piway to Claude Code, over HTTP (through
+   [Tailscale](docs/REMOTE.md) from anywhere on your tailnet):
+
+   ```sh
+   claude mcp add -s user --transport http piway https://<pi>.<tailnet>.ts.net/mcp \
+     --header "Authorization: Bearer piway_…"
+   ```
+
+   or over stdio, with Claude Code running on the Pi itself:
+
+   ```sh
+   claude mcp add -s user piway -e PIWAY_TOKEN=piway_… -- piway mcp
+   ```
+
+3. Check with `claude mcp list`, then ask things like *"Is anything wrong
+   on the Pi?"*, *"Why did the last deploy of blog fail?"* or *"Deploy the
+   newest commit of photos."*
+
+Claude gets six tools: `get_status`, `list_apps` and `tail_logs` read;
+`deploy`, `restart_app` and `rollback_app` change what runs and only act
+with `confirm: true`, which Claude sets when you asked for it. The token
+can do what any API token can and nothing more. Details:
+[docs/MCP.md](docs/MCP.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the issue, branch, commit
