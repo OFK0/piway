@@ -15,13 +15,14 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
+import { navigate } from '@/lib/navigation'
 import { buildPath } from '@/lib/routes'
 import { shortSha } from '@/lib/time'
 
 function queued(what: string, b: Build) {
   toast.success(`${what} queued`, {
     description: `${b.app ?? b.repo} at ${shortSha(b.commit)}`,
-    action: { label: 'View log', onClick: () => window.location.assign(buildPath(b.id)) },
+    action: { label: 'View log', onClick: () => void navigate(buildPath(b.id)) },
   })
 }
 

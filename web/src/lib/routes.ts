@@ -1,5 +1,6 @@
-// The dashboard's pages. Links are plain <a href>; piway serves index.html
-// for every path without an extension (#12), so a reload works anywhere.
+// The dashboard's pages. Links are plain <a href>, turned into in-page
+// navigation by lib/navigation.ts; piway serves index.html for every path
+// without an extension (#12), so a reload or a shared link works anywhere.
 export type Route =
   | { page: 'overview' }
   | { page: 'apps' }
