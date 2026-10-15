@@ -2,11 +2,11 @@
 
 Steps that make the Raspberry Pi safe to run piway on, in the order to
 apply them. Written for Raspberry Pi OS / Debian 13 (trixie). Each step
-says how to check it; [`scripts/hardening-check.sh`](../scripts/hardening-check.sh)
-checks them all at once:
+says how to check it; `piway doctor --security` checks them all at once
+and prints the fix for anything missing:
 
 ```sh
-sudo scripts/hardening-check.sh
+sudo ~/.local/bin/piway doctor --security   # sudo's PATH does not include ~/.local/bin
 ```
 
 What each step protects against:
