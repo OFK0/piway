@@ -53,3 +53,16 @@ Each milestone maps to a GitHub milestone; each bullet is an issue.
 - One-command install: `install.sh` and `piway setup` ([INSTALL.md](INSTALL.md))
 - `piway doctor`: check an installation and say how to fix it
 - Documentation site generated from `docs/`
+
+## M8 — App platform
+- Deploy from private GitHub repositories with deploy keys (or a token)
+- Manage deployed repositories from the dashboard and the CLI
+- Persistent volumes for apps, with SQLite support
+- Show and edit an app's environment and secrets in the dashboard
+- Example apps in seven languages that exercise real workloads
+- End-to-end tests on arm64 before every release
+- Shared databases: PostgreSQL, MariaDB and Redis
+- Stress, soak and performance regression tests
+
+## Later
+- GitLab support (webhooks and deploy keys)
