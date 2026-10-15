@@ -42,6 +42,9 @@ type Options struct {
 	Keep    int                     // finished builds kept with their logs; default 100
 	Runtime Runtime                 // optional: live container state for Apps
 	AppURL  func(app string) string // optional: where users reach an app
+	// OnFinish, if set, runs when a build ends, with p's lock held: it
+	// must return quickly and not call back into the Pipeline.
+	OnFinish func(Build)
 
 	now func() time.Time
 }
@@ -397,6 +400,9 @@ func (p *Pipeline) finish(b *Build, s State, msg string) {
 	b.State, b.Error, b.Finished = s, msg, p.opts.now()
 	if err := p.store.save(b); err != nil {
 		p.log.Warn("save build", "build", b.ID, "err", err)
+	}
+	if p.opts.OnFinish != nil {
+		p.opts.OnFinish(*b)
 	}
 	var done []string
 	for _, id := range p.order {

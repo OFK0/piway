@@ -10,6 +10,7 @@ import (
 
 	"github.com/ofk0/piway/internal/agent"
 	"github.com/ofk0/piway/internal/collector/cpu"
+	"github.com/ofk0/piway/internal/collector/disk"
 	"github.com/ofk0/piway/internal/collector/mem"
 	"github.com/ofk0/piway/internal/collector/netdev"
 	"github.com/ofk0/piway/internal/collector/thermal"
@@ -50,6 +51,7 @@ func TestPoints(t *testing.T) {
 		`cpu_core_usage_percent{core="1"}`:                   15,
 		"memory_total_bytes":                                 4 << 30,
 		"memory_used_bytes":                                  1 << 30,
+		"memory_used_percent":                                25,
 		"temperature_celsius":                                48.5,
 		"throttle_under_voltage":                             1,
 		"throttle_throttled":                                 0,
@@ -103,5 +105,39 @@ func TestRecordLogsErrorsOnTransitionOnly(t *testing.T) {
 	}
 	if n := strings.Count(out, "recording metrics again"); n != 1 {
 		t.Errorf("logged the recovery %d times, want once:\n%s", n, out)
+	}
+}
+
+func TestMetricsListsEveryName(t *testing.T) {
+	temp := 50.0
+	s := &agent.Snapshot{
+		CPU:     &cpu.Usage{Total: 1, PerCore: []float64{1}},
+		Memory:  &mem.Info{Total: 1, Used: 1},
+		Thermal: &thermal.Reading{TempCelsius: &temp, Throttle: &thermal.Throttle{}},
+		Disk: &disk.Stats{
+			Devices:     []disk.Device{{Name: "sda"}},
+			Filesystems: []disk.Filesystem{{Path: "/", TotalBytes: 100, UsedBytes: 91, UsedPercent: 91}},
+		},
+		Network: []netdev.Interface{{Name: "eth0"}},
+	}
+	known := map[string]bool{}
+	for _, m := range Metrics {
+		known[m] = true
+	}
+	seen := map[string]bool{}
+	for _, p := range Points(nil, s) {
+		base, _, _ := strings.Cut(p.Series, "{")
+		seen[base] = true
+		if !known[base] {
+			t.Errorf("%s is not in Metrics", base)
+		}
+		if base == "filesystem_used_percent" && p.Value != 91 {
+			t.Errorf("%s = %v, want 91", p.Series, p.Value)
+		}
+	}
+	for _, m := range Metrics {
+		if !seen[m] {
+			t.Errorf("Metrics lists %s, which Points never produces", m)
+		}
 	}
 }

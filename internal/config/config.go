@@ -48,6 +48,8 @@ type Config struct {
 	CaddyAdmin  string // Caddy's admin API
 	// PasswordFile holds the dashboard password's hash (internal/auth).
 	PasswordFile string
+	// AlertsFile holds the alert rules (docs/ALERTS.md); missing means defaults.
+	AlertsFile string
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -71,7 +73,17 @@ func Default() Config {
 		ProxyTLS:      true,
 		CaddyAdmin:    "localhost:2019",
 		PasswordFile:  DefaultPasswordFile(),
+		AlertsFile:    defaultConfigFile("alerts.yaml"),
 	}
+}
+
+// defaultConfigFile is name next to the default config file.
+func defaultConfigFile(name string) string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "piway", name)
 }
 
 // DefaultPasswordFile is password next to the default config file.
@@ -334,6 +346,23 @@ var fields = []field{
 		quote: true,
 	},
 	passwordFileField,
+	{
+		key:   "alerts_file",
+		usage: "YAML `file` with the alert rules; missing means the built-in rules",
+		set: func(c *Config, s string) error {
+			if rest, ok := strings.CutPrefix(s, "~/"); ok {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return err
+				}
+				s = filepath.Join(home, rest)
+			}
+			c.AlertsFile = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.AlertsFile },
+		quote: true,
+	},
 }
 
 var passwordFileField = field{

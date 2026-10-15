@@ -188,3 +188,31 @@ export const redeployApp = (name: string) =>
 export function buildLogStreamURL(id: string, loc: { protocol: string; host: string } = window.location): string {
   return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/api/v1/builds/${encodeURIComponent(id)}/log/stream`
 }
+
+// --- Alerts (docs/API.md › GET /api/v1/alerts) -----------------------------
+
+export type AlertState = 'pending' | 'firing' | 'clearing' | 'resolved'
+
+export interface Alert {
+  rule: string
+  /** The metric series, or deploy:<repo>@<branch>. */
+  series: string
+  summary: string
+  state: AlertState
+  value?: number
+  since: string
+  fired_at?: string
+}
+
+export interface AlertEvent extends Alert {
+  at: string
+}
+
+export interface AlertsResponse {
+  active: Alert[]
+  events: AlertEvent[]
+  rules: { name: string; metric: string; condition: string; for: string; clear_for: string }[]
+  deploy_failures: boolean
+}
+
+export const fetchAlerts = (signal?: AbortSignal) => getJSON<AlertsResponse>('/api/v1/alerts', signal)

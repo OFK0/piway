@@ -51,6 +51,19 @@ func (r *Recorder) Record(s *agent.Snapshot) {
 	}
 }
 
+// Metrics are the series names Points produces, without labels.
+var Metrics = []string{
+	"cpu_usage_percent", "cpu_core_usage_percent",
+	"memory_total_bytes", "memory_used_bytes", "memory_available_bytes", "memory_cached_bytes",
+	"memory_buffers_bytes", "swap_total_bytes", "swap_used_bytes", "memory_used_percent",
+	"temperature_celsius",
+	"throttle_under_voltage", "throttle_freq_capped", "throttle_throttled", "throttle_soft_temp_limit",
+	"disk_read_bytes_per_second", "disk_write_bytes_per_second", "disk_busy_percent", "disk_written_bytes_total",
+	"filesystem_size_bytes", "filesystem_used_bytes", "filesystem_available_bytes", "filesystem_used_percent",
+	"network_receive_bytes_per_second", "network_transmit_bytes_per_second",
+	"network_receive_errors_total", "network_transmit_errors_total",
+}
+
 // Points appends the series of s to dst. Missing collectors contribute
 // nothing, so a gap in a series means the metric was unavailable.
 func Points(dst []tsdb.Point, s *agent.Snapshot) []tsdb.Point {
@@ -79,6 +92,9 @@ func Points(dst []tsdb.Point, s *agent.Snapshot) []tsdb.Point {
 		add("memory_buffers_bytes", float64(m.Buffers))
 		add("swap_total_bytes", float64(m.SwapTotal))
 		add("swap_used_bytes", float64(m.SwapUsed))
+		if m.Total > 0 {
+			add("memory_used_percent", 100*float64(m.Used)/float64(m.Total))
+		}
 	}
 	if th := s.Thermal; th != nil {
 		if th.TempCelsius != nil {
@@ -102,6 +118,7 @@ func Points(dst []tsdb.Point, s *agent.Snapshot) []tsdb.Point {
 			add(label("filesystem_size_bytes", "path", fs.Path), float64(fs.TotalBytes))
 			add(label("filesystem_used_bytes", "path", fs.Path), float64(fs.UsedBytes))
 			add(label("filesystem_available_bytes", "path", fs.Path), float64(fs.AvailBytes))
+			add(label("filesystem_used_percent", "path", fs.Path), fs.UsedPercent) // as df shows it
 		}
 	}
 	for _, n := range s.Network {

@@ -31,7 +31,8 @@ type Deps struct {
 	Builds    Builds
 	UI        fs.FS
 	// Auth guards the API; nil leaves it open (tests).
-	Auth *auth.Auth
+	Auth   *auth.Auth
+	Alerts Alerts
 }
 
 // New returns the root HTTP handler.
@@ -58,6 +59,7 @@ func New(d Deps) (http.Handler, error) {
 	api.HandleFunc("GET /api/v1/snapshot", snapshot(snapshots))
 	api.Handle("GET /api/v1/stream", live)
 	api.HandleFunc("GET /api/v1/series", series(hist, time.Now))
+	api.HandleFunc("GET /api/v1/alerts", alerts(d.Alerts))
 	buildRoutes(api, d.Builds)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,

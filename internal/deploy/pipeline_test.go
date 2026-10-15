@@ -487,3 +487,24 @@ func TestAppsAndRedeploy(t *testing.T) {
 	h.steps.release <- nil
 	waitState(t, h.p, rb.ID, Succeeded)
 }
+
+func TestOnFinish(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	h := start(t, t.TempDir(), Options{OnFinish: func(b Build) {
+		mu.Lock()
+		got = append(got, string(b.State)+":"+b.App)
+		mu.Unlock()
+	}})
+	ok := push(t, h.p, "aaaaaaaaaaaa1")
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, ok, Succeeded)
+	h.steps.imageFail = errors.New("compile error")
+	waitState(t, h.p, push(t, h.p, "bbbbbbbbbbbb2"), Failed)
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(got, " ") != "succeeded:guestbook failed:guestbook" {
+		t.Errorf("OnFinish saw %v", got)
+	}
+}
