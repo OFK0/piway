@@ -1,3 +1,5 @@
+import { needsSignIn, notifySignedOut } from './lib/session.ts'
+
 // Types and calls for piway's HTTP API. The schema is documented in
 // docs/API.md; keep the two in sync. Every metric may be null (collector
 // unavailable, failed this round, or no baseline yet).
@@ -84,6 +86,7 @@ export interface Health {
 
 async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, { signal })
+  if (needsSignIn(res.status)) notifySignedOut()
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
@@ -113,6 +116,7 @@ export async function fetchSeries(
 ): Promise<SeriesResponse> {
   const q = new URLSearchParams({ name, ...params })
   const res = await fetch(`/api/v1/series?${q}`, { signal })
+  if (needsSignIn(res.status)) notifySignedOut()
   if (res.status === 503) throw new HistoryDisabledError('History is off (data_dir is empty).')
   if (!res.ok) {
     const body = await res.json().catch(() => null)
@@ -162,6 +166,7 @@ export class DeploysDisabledError extends Error {}
 async function deployJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init)
   const body = await res.json().catch(() => null)
+  if (needsSignIn(res.status)) notifySignedOut()
   if (res.status === 503) throw new DeploysDisabledError(body?.error ?? 'Deploys are off.')
   if (!res.ok) throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
   return body as T

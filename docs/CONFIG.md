@@ -41,9 +41,28 @@ The output is itself a valid config file.
 | `proxy_listen` | `PIWAY_PROXY_LISTEN` | `-proxy-listen` | `":8443"` | Address Caddy serves apps on. Ports below 1024 need a sysctl change ([PROXY.md](PROXY.md#ports)). |
 | `proxy_tls` | `PIWAY_PROXY_TLS` | `-proxy-tls` | `true` | Serve apps over HTTPS, with certificates from Caddy. `false` serves plain HTTP. |
 | `caddy_admin` | `PIWAY_CADDY_ADMIN` | `-caddy-admin` | `"localhost:2019"` | Caddy's admin API. |
+| `password_file` | `PIWAY_PASSWORD_FILE` | `-password-file` | `~/.config/piway/password` | The dashboard password's argon2id hash, written by `-set-password`. See [Dashboard password](#dashboard-password). |
 
 The pattern is the same for every setting: the env var is `PIWAY_` plus the
 key in upper case, and the flag is the key with `_` replaced by `-`.
+
+## Dashboard password
+
+```console
+$ piway -set-password
+New dashboard password:
+Again:
+Password saved to /home/user/.config/piway/password. Signed-in browsers must sign in again.
+```
+
+It asks twice on a terminal, or reads one line from standard input
+otherwise (`echo "$PW" | piway -set-password`). The password needs at
+least 10 characters; piway stores only its argon2id hash, in
+`password_file` (mode `0600`). A running piway picks a new password up
+at once, without a restart, and signs every browser out.
+
+Until a password is set, piway answers only the Pi itself
+([API.md](API.md#sign-in)). To remove the password, delete the file.
 
 ## Config file
 

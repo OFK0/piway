@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ofk0/piway/internal/agent"
+	"github.com/ofk0/piway/internal/auth"
 	"github.com/ofk0/piway/internal/prom"
 	"github.com/ofk0/piway/internal/version"
 )
@@ -29,6 +30,8 @@ type Deps struct {
 	Webhooks  http.Handler // GitHub webhooks (internal/webhook)
 	Builds    Builds
 	UI        fs.FS
+	// Auth guards the API; nil leaves it open (tests).
+	Auth *auth.Auth
 }
 
 // New returns the root HTTP handler.
@@ -45,20 +48,51 @@ func New(d Deps) (http.Handler, error) {
 		return nil, err
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthz)
-	mux.HandleFunc("GET /api/v1/snapshot", snapshot(snapshots))
-	mux.Handle("GET /api/v1/stream", live)
-	mux.HandleFunc("GET /api/v1/series", series(hist, time.Now))
-	mux.Handle("POST /api/v1/webhooks/github", hooks)
-	buildRoutes(mux, d.Builds)
-	mux.Handle("GET /metrics", prom.Handler(snapshots.Latest))
+	protect := func(h http.Handler) http.Handler { return h }
+	if d.Auth != nil {
+		protect = d.Auth.Require
+	}
+
+	// Everything under /api/ needs a session, except the routes on mux.
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/v1/snapshot", snapshot(snapshots))
+	api.Handle("GET /api/v1/stream", live)
+	api.HandleFunc("GET /api/v1/series", series(hist, time.Now))
+	buildRoutes(api, d.Builds)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,
 	// POST /api/v1/snapshot.
-	mux.HandleFunc("GET /api/", apiNotFound)
-	mux.Handle("GET /", dashboard)
-	return mux, nil
+	api.HandleFunc("GET /api/", apiNotFound)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", healthz)
+	mux.Handle("POST /api/v1/webhooks/github", hooks) // signed by GitHub instead
+	if d.Auth != nil {
+		d.Auth.Routes(mux)
+	}
+	mux.Handle("/api/", protect(api))
+	mux.Handle("GET /metrics", protect(prom.Handler(snapshots.Latest)))
+	// The dashboard's files are public: they hold no data, and its login
+	// page is one of them.
+	mux.Handle("/", getOnly(dashboard))
+
+	// Reject cross-site form posts and fetches (CSRF): browsers say where
+	// a request comes from in Sec-Fetch-Site or Origin. Requests without
+	// those headers, such as GitHub's webhooks, are not from a browser.
+	return http.NewCrossOriginProtection().Handler(mux), nil
+}
+
+// getOnly answers 405 to anything but GET and HEAD. The dashboard cannot
+// be registered as "GET /": that would conflict with the "/api/" subtree.
+func getOnly(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 func apiNotFound(w http.ResponseWriter, _ *http.Request) {

@@ -46,6 +46,8 @@ type Config struct {
 	ProxyListen string // where Caddy serves apps
 	ProxyTLS    bool
 	CaddyAdmin  string // Caddy's admin API
+	// PasswordFile holds the dashboard password's hash (internal/auth).
+	PasswordFile string
 }
 
 // MinInterval keeps a typo like "1ms" from pinning a core: every round reads
@@ -68,7 +70,17 @@ func Default() Config {
 		ProxyListen:   ":8443",
 		ProxyTLS:      true,
 		CaddyAdmin:    "localhost:2019",
+		PasswordFile:  DefaultPasswordFile(),
 	}
+}
+
+// DefaultPasswordFile is password next to the default config file.
+func DefaultPasswordFile() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "piway", "password")
 }
 
 // DefaultAppsFile is apps.yaml next to the default config file.
@@ -321,6 +333,28 @@ var fields = []field{
 		get:   func(c *Config) string { return c.CaddyAdmin },
 		quote: true,
 	},
+	passwordFileField,
+}
+
+var passwordFileField = field{
+	key:   "password_file",
+	usage: "`file` with the dashboard password's hash, written by -set-password",
+	set: func(c *Config, s string) error {
+		if s == "" {
+			return errors.New("must not be empty: the dashboard needs a password to be reachable from other machines")
+		}
+		if rest, ok := strings.CutPrefix(s, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			s = filepath.Join(home, rest)
+		}
+		c.PasswordFile = s
+		return nil
+	},
+	get:   func(c *Config) string { return c.PasswordFile },
+	quote: true,
 }
 
 // domainPattern is one or more DNS labels: "local" serves <name>.local.
@@ -365,6 +399,7 @@ type Loaded struct {
 
 	ShowVersion bool
 	PrintConfig bool
+	SetPassword bool
 }
 
 // Load parses args (without the program name) and builds the configuration.
@@ -388,6 +423,7 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultPath stri
 	configPath := fset.String("config", "", "config `file` (default $PIWAY_CONFIG, else "+defaultPath+")")
 	fset.BoolVar(&l.ShowVersion, "version", false, "print version and exit")
 	fset.BoolVar(&l.PrintConfig, "print-config", false, "print the effective configuration and where each value came from, then exit")
+	fset.BoolVar(&l.SetPassword, "set-password", false, "ask for a new dashboard password, store its hash in password_file, then exit")
 	def := Default()
 	for _, f := range fields {
 		usage := fmt.Sprintf("%s (default %q, env %s)", f.usage, f.get(&def), envName(f.key))

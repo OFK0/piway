@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 
 import { AppShell } from '@/components/app-shell'
+import { SessionGate } from '@/components/session-gate'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { matchRoute } from '@/lib/routes'
@@ -16,6 +17,14 @@ const BuildPage = lazy(() => import('@/pages/build'))
 // Links are plain <a href>, and piway serves index.html for unknown paths
 // (#12), so routing is just reading the path once.
 export default function App() {
+  return (
+    <SessionGate>
+      <Page />
+    </SessionGate>
+  )
+}
+
+function Page() {
   const route = matchRoute(window.location.pathname)
   if (route.page === 'overview') return <OverviewPage />
   return (

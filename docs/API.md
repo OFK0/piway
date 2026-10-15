@@ -12,6 +12,41 @@ Routes only accept the methods listed for them; any other method gets
 stable schema: fields may be added, but existing fields are not renamed,
 removed or retyped without moving to `/api/v2`.
 
+## Sign-in
+
+Every path under `/api/` and `/metrics` needs a session, except
+`/healthz`, the [session endpoints](#session-endpoints) and the
+[GitHub webhook](#post-apiv1webhooksgithub) (signed by GitHub instead).
+The dashboard's own files are public: they hold no data, and the sign-in
+page is one of them.
+
+- **Password set** (`piway -set-password`, see
+  [CONFIG.md](CONFIG.md#dashboard-password)): a request needs the
+  `piway_session` cookie from `POST /api/v1/login`, else it gets `401`.
+- **No password yet**: piway answers only requests from the Pi itself
+  (`127.0.0.1` or `::1`), such as through an SSH tunnel. Others get
+  `403` with how to set a password. A reverse proxy on the Pi makes every
+  request look local, so set a password before putting one in front of
+  piway.
+
+Cross-site requests that change something are rejected with `403`: piway
+checks the browser's `Sec-Fetch-Site` and `Origin` headers (CSRF
+protection). Clients that send neither, like `curl` or GitHub, are not
+affected.
+
+### Session endpoints
+
+| Method and path | Response |
+| --------------- | -------- |
+| `GET /api/v1/session` | `{"mode": "password" or "local", "authenticated": bool, "expires_at": time}`. `expires_at` only for a password session. |
+| `POST /api/v1/login` | Body `{"password": "..."}`. `200` with the session and a `piway_session` cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS, 30 days). `401` for a wrong password; `429` with `Retry-After` while locked out; `409` when no password is set; `400` for a malformed body. |
+| `POST /api/v1/logout` | `204`; ends the session and clears the cookie. |
+
+After 5 wrong passwords from one address, each further wrong one locks
+that address out for twice as long as the last, from 30 s up to an hour;
+a right password, or a day without failures, starts over. Passwords are
+checked one at a time (each check takes about 0.3 s and 64 MiB on a Pi 4).
+
 ## `GET /healthz`
 
 Liveness probe.
@@ -259,8 +294,9 @@ ws.onmessage = (e) => render(JSON.parse(e.data));
   rounds (for example, after reconnecting).
 - **Keepalive:** the server pings every 15 s. A client that does not answer
   within 5 s is disconnected. Browsers answer pings automatically.
-- **Origin:** cross-origin upgrades are rejected (`403`), since the endpoint
-  has no authentication yet.
+- **Sign-in and origin:** the upgrade needs a session like any API call
+  (the browser sends the cookie), and cross-origin upgrades are rejected
+  (`403`).
 
 ### Close codes
 
@@ -282,6 +318,9 @@ scrape_configs:
     static_configs:
       - targets: ["<pi-address>:8080"]
 ```
+
+Like the API, `/metrics` needs [sign-in](#sign-in). Until API tokens
+arrive (#28), scrape it from the Pi itself with no password set.
 
 Values use base units (seconds, bytes, degrees Celsius). Unlike the JSON API,
 CPU, disk and network are cumulative counters, not rates: use `rate()` over
