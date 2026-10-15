@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -83,5 +84,25 @@ func TestCrossSiteRequestsAreRejected(t *testing.T) {
 	same := map[string]string{"Sec-Fetch-Site": "same-origin"}
 	if got := request(h, "POST", "/api/v1/apps/x/rollback", local, same); got == http.StatusForbidden {
 		t.Error("same-origin POST rejected")
+	}
+}
+
+func TestMCPIsBehindSignIn(t *testing.T) {
+	h := authServer(t) // no password: only loopback
+	call := func(remote string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_status"}}`))
+		req.RemoteAddr = remote
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+	if w := call("192.0.2.7:4000"); w.Code != http.StatusForbidden {
+		t.Errorf("MCP from the LAN without credentials: %d", w.Code)
+	}
+	// From the Pi itself, get_status reaches the API in process.
+	w := call("127.0.0.1:4000")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Alerts: none") || strings.Contains(w.Body.String(), `"isError":true`) {
+		t.Errorf("MCP from loopback: %d %s", w.Code, w.Body)
 	}
 }
