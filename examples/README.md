@@ -13,7 +13,6 @@ the fixtures of piway's end-to-end tests (#113).
 | [notes](notes) | PHP | CRUD on MariaDB, sessions in Redis, attachments, a scheduled cleanup script |
 
 More are on the way (#112): Ruby feeds, Java reports, Clojure events and a static docs site.
-| [notes](notes) | PHP | CRUD on MariaDB, sessions in Redis, attachments, a scheduled cleanup script |
 
 More are on the way (#112): Ruby feeds, Java reports, Clojure events and a static docs site.
 
