@@ -14,8 +14,7 @@ the fixtures of piway's end-to-end tests (#113).
 | [feeds](feeds) | Ruby | Scheduled RSS fetching, SQLite on a volume (WAL), new items over SSE, OPML |
 | [reports](reports) | Java | Queued CSV and PDF reports on a thread pool, MariaDB, progress over SSE, a JVM inside `run.memory` |
 | [events](events) | Clojure | Event ingestion, time-window aggregation with core.async, stats over a WebSocket, state handed over across a deploy |
-
-More are on the way (#112): a static docs site.
+| [docs-site](docs-site) | Static (Vite) | A Vite build made in a container on deploy, served as files, client-side routes (`static.spa`) |
 
 ## Common contract
 

@@ -1,0 +1,9 @@
+piway: 1
+name: docs-site
+
+static:
+  dir: dist
+  spa: true              # /about and /apps/<name> are client-side routes
+  build:
+    image: node:24-alpine
+    command: npm ci && npm run build

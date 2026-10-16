@@ -17,6 +17,7 @@ piway repo add OFK0/piway -path examples/loadlab
 | [feeds](https://github.com/OFK0/piway/tree/main/examples/feeds) | Ruby | Scheduled RSS fetching, SQLite on a volume (WAL), new items over SSE, OPML | 299 MB | 53 MiB |
 | [reports](https://github.com/OFK0/piway/tree/main/examples/reports) | Java | Queued CSV and PDF reports on a thread pool, MariaDB, progress over SSE, a JVM inside `run.memory` | 537 MB | 112 MiB |
 | [events](https://github.com/OFK0/piway/tree/main/examples/events) | Clojure | Event ingestion, time-window aggregation with core.async, stats over a WebSocket, state handed over across a deploy | 503 MB | 52 MiB |
+| [docs-site](https://github.com/OFK0/piway/tree/main/examples/docs-site) | Static (Vite) | A Vite build made in a container on deploy, served as files, client-side routes (`static.spa`) | — | none |
 
 Each app's README has what it does, how it uses piway and what it measured
 on a Raspberry Pi 4. They share a [common contract](https://github.com/OFK0/piway/tree/main/examples#common-contract):

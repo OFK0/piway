@@ -1,0 +1,12 @@
+{
+  "name": "piway-example-docs-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node info.mjs && vite build",
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "7.3.7"
+  }
+}
