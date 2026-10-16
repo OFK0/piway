@@ -8,8 +8,9 @@ the fixtures of piway's end-to-end tests (#113).
 | App | Language | What it exercises |
 | --- | -------- | ----------------- |
 | [loadlab](loadlab) | Go | CPU, memory and disk on demand; limits, OOM kills, volumes; a WebSocket stream |
+| [thumbnailer](thumbnailer) | Python | Uploads, a background worker making thumbnails, progress over a WebSocket, expiring files |
 
-More are on the way (#112): a Python thumbnailer, a Node.js chat, PHP
+More are on the way (#112): a Node.js chat, PHP
 notes, Ruby feeds, Java reports, Clojure events and a static docs site.
 
 ## Common contract
