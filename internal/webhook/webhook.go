@@ -50,6 +50,20 @@ type Target struct {
 	// Auth is how piway reads a private repository: gitauth.DeployKey or
 	// gitauth.Token. Empty for a public one.
 	Auth string `yaml:"auth,omitempty"`
+	// Path is the app's directory in the repository, for a repository
+	// with several apps; empty is the root. piway.yaml is read there, and
+	// its paths are relative to it.
+	Path string `yaml:"path,omitempty"`
+}
+
+// Name is how the target is written: owner/name@branch, then :path if
+// it has one.
+func (t Target) Name() string {
+	n := t.Repo + "@" + t.Branch
+	if t.Path != "" {
+		n += ":" + t.Path
+	}
+	return n
 }
 
 // Request asks for a commit to be deployed.
@@ -60,6 +74,7 @@ type Request struct {
 	CloneURL string
 	Pusher   string
 	Delivery string // X-GitHub-Delivery
+	Path     string // the app's directory (Target.Path)
 }
 
 // Deployer accepts deploy requests. Deploy must not block for long: the
@@ -182,36 +197,44 @@ func (h *Handler) push(w http.ResponseWriter, r *http.Request, body []byte) {
 	case ev.Deleted:
 		reply(w, http.StatusOK, "ignored", "branch deleted")
 		return
-	case !h.wanted(ev.Repo.FullName, branch):
+	}
+	targets := h.wanted(ev.Repo.FullName, branch)
+	if len(targets) == 0 {
 		reply(w, http.StatusOK, "ignored", ev.Repo.FullName+"@"+branch+" is not configured to deploy")
 		return
 	}
 
-	req := Request{
-		Repo:     ev.Repo.FullName,
-		Branch:   branch,
-		Commit:   ev.After,
-		CloneURL: ev.Repo.CloneURL,
-		Pusher:   ev.Pusher.Name,
-		Delivery: r.Header.Get("X-GitHub-Delivery"),
+	// One push deploys every app of the branch (one per path).
+	for _, t := range targets {
+		req := Request{
+			Repo:     ev.Repo.FullName,
+			Branch:   branch,
+			Commit:   ev.After,
+			CloneURL: ev.Repo.CloneURL,
+			Pusher:   ev.Pusher.Name,
+			Delivery: r.Header.Get("X-GitHub-Delivery"),
+			Path:     t.Path,
+		}
+		if err := h.deployer.Deploy(req); err != nil {
+			h.seen.remove(req.Delivery)
+			h.log.Error("queue deploy", "repo", req.Repo, "path", req.Path, "commit", req.Commit, "err", err)
+			reply(w, http.StatusServiceUnavailable, "error", err.Error())
+			return
+		}
+		h.log.Info("deploy queued", "repo", req.Repo, "branch", branch, "path", req.Path, "commit", req.Commit, "pusher", req.Pusher)
 	}
-	if err := h.deployer.Deploy(req); err != nil {
-		h.seen.remove(req.Delivery)
-		h.log.Error("queue deploy", "repo", req.Repo, "commit", req.Commit, "err", err)
-		reply(w, http.StatusServiceUnavailable, "error", err.Error())
-		return
-	}
-	h.log.Info("deploy queued", "repo", req.Repo, "branch", branch, "commit", req.Commit, "pusher", req.Pusher)
 	reply(w, http.StatusAccepted, "queued", "")
 }
 
-func (h *Handler) wanted(repo, branch string) bool {
+// wanted returns the targets a push to repo's branch deploys.
+func (h *Handler) wanted(repo, branch string) []Target {
+	var out []Target
 	for _, t := range h.targets.Targets() {
 		if strings.EqualFold(t.Repo, repo) && t.Branch == branch {
-			return true
+			out = append(out, t)
 		}
 	}
-	return false
+	return out
 }
 
 // recent remembers the last n delivery ids.

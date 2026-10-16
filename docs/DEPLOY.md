@@ -37,6 +37,34 @@ are tags and branch deletions. Unknown keys and duplicates are errors. A hand
 edit that does not parse is ignored, with a warning in piway's log, until it is
 fixed; piway keeps deploying from the last good list.
 
+### Several apps in one repository
+
+An app can live in a directory of a repository, with its own piway.yaml
+there: give its `path`.
+
+```sh
+piway repo add OFK0/shop -path apps/web
+piway repo add OFK0/shop -path apps/api
+```
+
+```yaml
+deploy:
+  - repo: OFK0/shop
+    branch: main
+    path: apps/web
+  - repo: OFK0/shop
+    branch: main
+    path: apps/api
+```
+
+The directory then stands in for the repository root: piway.yaml is read
+there, and its paths (`build.context`, `build.dockerfile`, `static.dir`)
+are relative to it; a static site's build command runs there too. A push
+to the branch deploys every app of it, each as its own build; they do not
+replace each other in the queue. In the dashboard, **Add repository** has
+an **App directory** field. Each app's `name` in its piway.yaml must
+differ.
+
 ### Private repositories
 
 A private repository needs a credential, set per repository with `auth`. It

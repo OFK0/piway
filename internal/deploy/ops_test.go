@@ -141,3 +141,55 @@ func TestLogs(t *testing.T) {
 		t.Errorf("static site: %v", err)
 	}
 }
+
+func TestDeployPath(t *testing.T) {
+	targets := webhook.StaticTargets{
+		{Repo: "OFK0/mono", Branch: "main", Path: "apps/web"},
+		{Repo: "OFK0/mono", Branch: "main", Path: "apps/api"},
+	}
+	h := start(t, t.TempDir(), Options{Targets: targets})
+	h.steps.mu.Lock()
+	h.steps.subdir = "apps/web"
+	h.steps.mu.Unlock()
+
+	// Two apps of one branch queue side by side; neither replaces the other.
+	for _, path := range []string{"apps/web", "apps/api"} {
+		if err := h.p.Deploy(webhook.Request{Repo: "OFK0/mono", Branch: "main", Commit: strings.Repeat("a", 40), CloneURL: "x", Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	builds := h.p.List()
+	if len(builds) != 2 || builds[0].State == Cancelled || builds[1].State == Cancelled {
+		t.Fatalf("builds %+v", builds)
+	}
+	web := builds[0]
+	if web.Path != "apps/web" {
+		web = builds[1]
+	}
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, web.ID, Succeeded)
+
+	// The api build finds no apps/api directory in the checkout.
+	api := builds[0]
+	if api.Path != "apps/api" {
+		api = builds[1]
+	}
+	b := waitState(t, h.p, api.ID, Failed)
+	if !strings.Contains(b.Error, "apps/api is not a directory") {
+		t.Errorf("error %q", b.Error)
+	}
+
+	// DeployNow and Targets know the path.
+	tt := h.p.Targets()
+	if len(tt) != 2 || tt[0].Path != "apps/web" || tt[0].App != "guestbook" {
+		t.Errorf("targets %+v", tt)
+	}
+	if _, err := h.p.DeployNow(context.Background(), DeployRequest{Repo: "OFK0/mono", Branch: "main", Path: "apps/nope", Commit: strings.Repeat("b", 40)}, "api"); !errors.Is(err, ErrUnknownTarget) {
+		t.Errorf("unknown path: %v", err)
+	}
+	rd, err := h.p.DeployNow(context.Background(), DeployRequest{App: "guestbook", Commit: strings.Repeat("c", 40)}, "api")
+	if err != nil || rd.Path != "apps/web" {
+		t.Errorf("deploy by app: %+v %v", rd, err)
+	}
+}

@@ -112,14 +112,15 @@ func (s *Store) Add(t Target) error {
 }
 
 // Remove unlists repo. With a branch only that branch goes; with an empty
-// branch every branch of the repository does. It returns what it removed.
-func (s *Store) Remove(repo, branch string) ([]Target, error) {
+// branch every branch of the repository does. Every path of a branch
+// goes, unless path is set. It returns what it removed.
+func (s *Store) Remove(repo, branch string, path ...string) ([]Target, error) {
 	var removed []Target
 	err := s.edit(func(doc *yaml.Node, seq *yaml.Node, current []Target) (bool, error) {
 		kept := seq.Content[:0:0]
 		for i, n := range seq.Content {
 			t := current[i]
-			if strings.EqualFold(t.Repo, repo) && (branch == "" || t.Branch == branch) {
+			if strings.EqualFold(t.Repo, repo) && (branch == "" || t.Branch == branch) && (len(path) == 0 || t.Path == path[0]) {
 				removed = append(removed, t)
 				continue
 			}
@@ -206,6 +207,9 @@ func targetNode(t Target) *yaml.Node {
 	n := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
 		str("repo"), str(t.Repo), str("branch"), str(t.Branch),
 	}}
+	if t.Path != "" {
+		n.Content = append(n.Content, str("path"), str(t.Path))
+	}
 	if t.Auth != "" {
 		n.Content = append(n.Content, str("auth"), str(t.Auth))
 	}

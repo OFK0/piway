@@ -16,7 +16,7 @@ import (
 type Repos interface {
 	Targets() []webhook.Target
 	Add(webhook.Target) error
-	Remove(repo, branch string) ([]webhook.Target, error)
+	Remove(repo, branch string, path ...string) ([]webhook.Target, error)
 }
 
 // RepoAccess keeps the deploy keys and the token of private
@@ -36,6 +36,7 @@ type RepoAccess interface {
 type repoEntry struct {
 	Repo   string `json:"repo"`
 	Branch string `json:"branch"`
+	Path   string `json:"path,omitempty"` // the app's directory; absent for the root
 	App    string `json:"app,omitempty"`
 	Auth   string `json:"auth,omitempty"` // deploy-key or token; absent when public
 	// For a deploy key: what to paste into GitHub, and where.
@@ -58,7 +59,7 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 		return
 	}
 	entry := func(t webhook.Target, app string) repoEntry {
-		e := repoEntry{Repo: t.Repo, Branch: t.Branch, App: app, Auth: t.Auth}
+		e := repoEntry{Repo: t.Repo, Branch: t.Branch, Path: t.Path, App: app, Auth: t.Auth}
 		if t.Auth == gitauth.DeployKey && access != nil {
 			e.PublicKey, _ = access.PublicKey(t.Repo)
 			e.DeployKeyURL = gitauth.DeployKeyURL(t.Repo)
@@ -70,12 +71,12 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 		apps := map[string]string{}
 		if b != nil {
 			for _, t := range b.Targets() {
-				apps[strings.ToLower(t.Repo)+"@"+t.Branch] = t.App
+				apps[targetKey(t.Repo, t.Branch, t.Path)] = t.App
 			}
 		}
 		out := []repoEntry{}
 		for _, t := range repos.Targets() {
-			out = append(out, entry(t, apps[strings.ToLower(t.Repo)+"@"+t.Branch]))
+			out = append(out, entry(t, apps[targetKey(t.Repo, t.Branch, t.Path)]))
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -95,13 +96,15 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 		var req struct {
 			Repo   string `json:"repo"`
 			Branch string `json:"branch"`
+			Path   string `json:"path"`
 			Auth   string `json:"auth"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, `send {"repo": "owner/name", "branch": "main", "auth": "" | "deploy-key" | "token"}`)
 			return
 		}
-		t := webhook.Target{Repo: strings.TrimSpace(req.Repo), Branch: strings.TrimSpace(req.Branch), Auth: strings.TrimSpace(req.Auth)}
+		t := webhook.Target{Repo: strings.TrimSpace(req.Repo), Branch: strings.TrimSpace(req.Branch),
+			Path: strings.Trim(strings.TrimSpace(req.Path), "/"), Auth: strings.TrimSpace(req.Auth)}
 		if t.Branch == "" {
 			t.Branch = "main"
 		}
@@ -135,7 +138,13 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 			writeError(w, http.StatusBadRequest, "repo=owner/name is required; add branch= to remove just one")
 			return
 		}
-		removed, err := repos.Remove(repo, r.URL.Query().Get("branch"))
+		var removed []webhook.Target
+		var err error
+		if q := r.URL.Query(); q.Has("path") {
+			removed, err = repos.Remove(repo, q.Get("branch"), q.Get("path"))
+		} else {
+			removed, err = repos.Remove(repo, q.Get("branch"))
+		}
 		switch {
 		case errors.Is(err, webhook.ErrNotFound):
 			writeError(w, http.StatusNotFound, err.Error())
@@ -219,4 +228,9 @@ func testResult(err error) accessResult {
 		return accessResult{Kind: e.Kind, Message: e.Message(), Detail: e.Detail}
 	}
 	return accessResult{Kind: gitauth.Other, Message: err.Error()}
+}
+
+// targetKey identifies a repository branch and app directory.
+func targetKey(repo, branch, path string) string {
+	return strings.ToLower(repo) + "@" + branch + ":" + path
 }

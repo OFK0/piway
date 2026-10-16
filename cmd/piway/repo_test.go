@@ -102,3 +102,31 @@ func TestRepoPrivate(t *testing.T) {
 		t.Errorf("empty token: %d, want 1", code)
 	}
 }
+
+func TestRepoPath(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "apps.yaml")
+	store, err := webhook.OpenStore(file, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{AppsFile: file}
+	run := func(args ...string) (int, string) {
+		var out, errb bytes.Buffer
+		r := repoCLI{store: store, access: gitauth.New(keysDir(cfg)), cfg: cfg, stdin: strings.NewReader(""), stdout: &out, stderr: &errb}
+		code := r.command(args[0], args[1:])
+		return code, out.String() + errb.String()
+	}
+	if code, out := run("add", "OFK0/piway", "-path", "examples/loadlab/"); code != 0 || !strings.Contains(out, "OFK0/piway@main:examples/loadlab") {
+		t.Fatalf("add: %d %q", code, out)
+	}
+	run("add", "OFK0/piway", "-path", "examples/chat")
+	if code, out := run("list"); code != 0 || !strings.Contains(out, "examples/chat") || !strings.Contains(out, "PATH") {
+		t.Errorf("list: %q", out)
+	}
+	if code, out := run("remove", "OFK0/piway", "-path", "examples/chat"); code != 0 || strings.Contains(out, "loadlab") {
+		t.Errorf("remove one path: %d %q", code, out)
+	}
+	if len(store.Targets()) != 1 {
+		t.Errorf("targets %+v", store.Targets())
+	}
+}

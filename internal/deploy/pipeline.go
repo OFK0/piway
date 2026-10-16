@@ -151,7 +151,7 @@ func (p *Pipeline) Deploy(r webhook.Request) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	b := &Build{
-		ID: p.newID(r.Commit), Repo: r.Repo, Branch: r.Branch, Commit: r.Commit,
+		ID: p.newID(r.Commit), Repo: r.Repo, Branch: r.Branch, Commit: r.Commit, Path: r.Path,
 		Pusher: r.Pusher, CloneURL: r.CloneURL, State: Queued, Queued: p.opts.now(),
 	}
 	return p.enqueueLocked(b)
@@ -305,6 +305,17 @@ func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (result, e
 		return res, fmt.Errorf("fetch: %w", err)
 	}
 
+	// With a path, the app's directory stands in for the repository root.
+	if b.Path != "" {
+		if !webhook.ValidPath(b.Path) {
+			return res, fmt.Errorf("path %q is not a directory in the repository", b.Path)
+		}
+		dir = filepath.Join(dir, filepath.FromSlash(b.Path))
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			return res, fmt.Errorf("%s is not a directory at commit %s", b.Path, shortCommit(b.Commit))
+		}
+		fmt.Fprintf(out, "App directory: %s\n", b.Path)
+	}
 	m, err := manifest.Load(filepath.Join(dir, "piway.yaml"))
 	if err != nil {
 		fmt.Fprintf(out, "%v\n", err)
@@ -487,7 +498,7 @@ func (p *Pipeline) Rollback(app string) (Build, error) {
 		return Build{}, ErrNoRollback
 	}
 	rb := &Build{
-		ID: p.newID(target.Commit), App: app, Repo: target.Repo, Branch: target.Branch,
+		ID: p.newID(target.Commit), App: app, Repo: target.Repo, Branch: target.Branch, Path: target.Path,
 		Commit: target.Commit, CloneURL: target.CloneURL, Image: target.Image, Site: target.Site,
 		Kind: KindRollback, RollbackOf: target.ID, State: Queued, Queued: p.opts.now(),
 	}
@@ -701,7 +712,7 @@ func (p *Pipeline) Redeploy(app string) (Build, error) {
 		}
 	}
 	b := &Build{
-		ID: p.newID(src.Commit), Repo: src.Repo, Branch: src.Branch, Commit: src.Commit,
+		ID: p.newID(src.Commit), Repo: src.Repo, Branch: src.Branch, Commit: src.Commit, Path: src.Path,
 		CloneURL: src.CloneURL, Pusher: "dashboard", State: Queued, Queued: p.opts.now(),
 	}
 	if err := p.enqueueLocked(b); err != nil {

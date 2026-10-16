@@ -39,6 +39,9 @@ type Build struct {
 	Commit   string `json:"commit"`
 	Pusher   string `json:"pusher,omitempty"`
 	CloneURL string `json:"clone_url"`
+	// Path is the app's directory in the repository (apps.yaml path);
+	// empty is the root.
+	Path string `json:"path,omitempty"`
 	// Auth is how to read the repository (apps.yaml), looked up when the
 	// build fetches, so a change to it applies to builds already queued.
 	Auth  string `json:"-"`
@@ -73,7 +76,11 @@ func (b *Build) key() string {
 	if b.released() {
 		return "release:" + b.App
 	}
-	return strings.ToLower(b.Repo) + "@" + b.Branch
+	k := strings.ToLower(b.Repo) + "@" + b.Branch
+	if b.Path != "" {
+		k += ":" + b.Path
+	}
+	return k
 }
 
 // Kinds of builds that release an existing image or site instead of

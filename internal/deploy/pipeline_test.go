@@ -39,6 +39,7 @@ type fakeSteps struct {
 	siteFail  error             // returned by SiteBuild, if set
 	siteDirs  []string          // directories ReleaseSite served, in order
 	auths     []string          // the Auth of each build fetched, in order
+	subdir    string            // Fetch writes piway.yaml here, under dir
 }
 
 func newFake() *fakeSteps {
@@ -50,6 +51,8 @@ func (f *fakeSteps) Fetch(_ context.Context, b Build, dir string, out io.Writer)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.auths = append(f.auths, b.Auth)
+	dir = filepath.Join(dir, f.subdir)
+	os.MkdirAll(dir, 0o755)
 	for name, body := range f.siteFiles {
 		p := filepath.Join(dir, name)
 		os.MkdirAll(filepath.Dir(p), 0o755)

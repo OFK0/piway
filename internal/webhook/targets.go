@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 
@@ -60,6 +61,8 @@ func checkTarget(t Target, before []Target) error {
 		return fmt.Errorf("%w: branch is required", ErrInvalid)
 	case !gitauth.Valid(t.Auth):
 		return fmt.Errorf("%w: auth %q is not %s or %s (leave it out for a public repository)", ErrInvalid, t.Auth, gitauth.DeployKey, gitauth.Token)
+	case !ValidPath(t.Path):
+		return fmt.Errorf("%w: path %q must be a directory in the repository, such as apps/web (no leading /, no ..)", ErrInvalid, t.Path)
 	}
 	for _, b := range before {
 		if !strings.EqualFold(b.Repo, t.Repo) {
@@ -69,11 +72,23 @@ func checkTarget(t Target, before []Target) error {
 			return fmt.Errorf("%w: %s is listed as %s, not %s; every branch of a repository uses the same auth (remove it and add it again to change)",
 				ErrInvalid, t.Repo, authName(b.Auth), authName(t.Auth))
 		}
-		if b.Branch == t.Branch {
-			return fmt.Errorf("%s@%s: %w", t.Repo, t.Branch, ErrExists)
+		if b.Branch == t.Branch && b.Path == t.Path {
+			return fmt.Errorf("%s: %w", t.Name(), ErrExists)
 		}
 	}
 	return nil
+}
+
+var pathChars = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// ValidPath reports whether p can be a target's path: empty (the root),
+// or a clean relative directory inside the repository.
+func ValidPath(p string) bool {
+	if p == "" {
+		return true
+	}
+	return pathChars.MatchString(p) && path.Clean(p) == p && p != "." &&
+		!strings.HasPrefix(p, "/") && p != ".." && !strings.HasPrefix(p, "../")
 }
 
 func authName(auth string) string {

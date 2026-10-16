@@ -96,7 +96,7 @@ export function ReposCard({ onChange }: { onChange?: () => void }) {
           <ul className="flex flex-col divide-y" aria-label="Repositories">
             {data.repos.map((r) => (
               <RepoRow
-                key={r.repo + '@' + r.branch}
+                key={r.repo + '@' + r.branch + ':' + (r.path ?? '')}
                 repo={r}
                 tokenSet={data.private?.token_set ?? false}
                 onChanged={changed}
@@ -111,12 +111,13 @@ export function ReposCard({ onChange }: { onChange?: () => void }) {
 
 function RepoRow({ repo, tokenSet, onChanged }: { repo: Repo; tokenSet: boolean; onChanged: () => void }) {
   const [busy, setBusy] = useState(false)
+  const label = `${repo.repo}@${repo.branch}${repo.path ? ':' + repo.path : ''}`
   const remove = async () => {
     setBusy(true)
     try {
-      const res = await removeRepo(repo.repo, repo.branch)
+      const res = await removeRepo(repo.repo, repo.branch, repo.path)
       const notes = [repo.app && `${repo.app} keeps running.`, res?.key_removed && 'Its deploy key was deleted; remove it on GitHub too.']
-      toast.success(`Removed ${repo.repo}@${repo.branch}`, {
+      toast.success(`Removed ${label}`, {
         description: notes.filter(Boolean).join(' ') || undefined,
       })
       onChanged()
@@ -140,6 +141,7 @@ function RepoRow({ repo, tokenSet, onChanged }: { repo: Repo; tokenSet: boolean;
         </span>
         <span className="flex items-center gap-1 type-caption text-muted-foreground">
           <GitBranchIcon aria-hidden /> {repo.branch}
+          {repo.path && <span className="type-code">{' · ' + repo.path}</span>}
           {repo.app && (
             <>
               {' · '}
@@ -173,13 +175,13 @@ function RepoRow({ repo, tokenSet, onChanged }: { repo: Repo; tokenSet: boolean;
       )}
       <Dialog>
         <DialogTrigger
-          render={<Button variant="ghost" size="icon" disabled={busy} aria-label={`Remove ${repo.repo}@${repo.branch}`} />}
+          render={<Button variant="ghost" size="icon" disabled={busy} aria-label={`Remove ${label}`} />}
         >
           {busy ? <Spinner aria-hidden /> : <TrashIcon />}
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove {repo.repo}@{repo.branch}?</DialogTitle>
+            <DialogTitle>Remove {label}?</DialogTitle>
             <DialogDescription>
               Pushes to this branch stop deploying. {repo.app ? `${repo.app} keeps running with its data, and you can` : 'You can'}{' '}
               add the repository again at any time.
@@ -354,6 +356,7 @@ function AddRepo({
   const [open, setOpen] = useState(false)
   const [repo, setRepo] = useState('')
   const [branch, setBranch] = useState('main')
+  const [dir, setDir] = useState('')
   const [access, setAccess] = useState<Access>('public')
   const [token, setToken] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -365,6 +368,7 @@ function AddRepo({
     if (!next) {
       setRepo('')
       setBranch('main')
+      setDir('')
       setAccess('public')
       setToken('')
       setError(null)
@@ -383,7 +387,7 @@ function AddRepo({
     setError(null)
     try {
       if (access === 'token' && token.trim() !== '') await setRepoToken(token.trim())
-      const entry = await addRepo(name, branch.trim() || 'main', access === 'public' ? undefined : access)
+      const entry = await addRepo(name, branch.trim() || 'main', access === 'public' ? undefined : access, dir.trim().replace(/^\/+|\/+$/g, ''))
       setAdded(entry)
       onAdded()
     } catch (err) {
@@ -421,7 +425,8 @@ function AddRepo({
           <>
             <DialogHeader>
               <DialogTitle>
-                {added.repo}@{added.branch} is listed
+                {added.repo}@{added.branch}
+                {added.path ? `:${added.path}` : ''} is listed
               </DialogTitle>
               <DialogDescription>
                 {added.auth
@@ -484,6 +489,21 @@ function AddRepo({
                   value={branch}
                   onChange={(e) => setBranch(e.target.value)}
                 />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="repo-dir">App directory</FieldLabel>
+                <Input
+                  id="repo-dir"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="the repository root"
+                  value={dir}
+                  onChange={(e) => setDir(e.target.value)}
+                />
+                <FieldDescription>
+                  For a repository with several apps, such as <code className="type-code">apps/web</code>. Its piway.yaml
+                  is read there.
+                </FieldDescription>
               </Field>
               {privateAvailable && (
                 <Field>

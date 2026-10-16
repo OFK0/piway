@@ -210,3 +210,27 @@ func TestReposPrivateUnavailable(t *testing.T) {
 		t.Errorf("private without access: %d", w.Code)
 	}
 }
+
+func TestReposPath(t *testing.T) {
+	h, file := reposServer(t)
+	for _, path := range []string{"/examples/loadlab/", "examples/chat"} {
+		if w := call(h, "POST", "/api/v1/repos", `{"repo":"OFK0/piway","path":"`+path+`"}`); w.Code != http.StatusCreated {
+			t.Fatalf("add %s: %d %s", path, w.Code, w.Body)
+		}
+	}
+	if w := call(h, "POST", "/api/v1/repos", `{"repo":"OFK0/piway","path":"../x"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("bad path: %d", w.Code)
+	}
+	if b, _ := os.ReadFile(file); !strings.Contains(string(b), "path: examples/loadlab") {
+		t.Errorf("file:\n%s", b)
+	}
+	if w := call(h, "GET", "/api/v1/repos", ""); !strings.Contains(w.Body.String(), `"path":"examples/chat"`) {
+		t.Errorf("list: %s", w.Body)
+	}
+	if w := call(h, "DELETE", "/api/v1/repos?repo=OFK0/piway&branch=main&path=examples/chat", ""); w.Code != http.StatusOK || strings.Contains(w.Body.String(), "loadlab") {
+		t.Errorf("delete one path: %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "GET", "/api/v1/repos", ""); !strings.Contains(w.Body.String(), "examples/loadlab") || strings.Contains(w.Body.String(), "examples/chat") {
+		t.Errorf("after delete: %s", w.Body)
+	}
+}
