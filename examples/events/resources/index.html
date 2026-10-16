@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>events</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: 0; } p { color: GrayText; margin-top: .25rem; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: .25rem .5rem; border-bottom: 1px solid color-mix(in srgb, GrayText 30%, transparent); }
+  th:first-child, td:first-child { text-align: left; }
+  .muted { color: GrayText; font-size: .875rem; }
+</style>
+</head>
+<body>
+<h1>events</h1>
+<p>Events aggregated in time windows with core.async, live over a WebSocket; totals survive a deploy.</p>
+<p><button id="gen">Generate 200 events a second for 10 s</button> <span id="totals" class="muted"></span></p>
+<div id="windows"></div>
+<script>
+const $ = (id) => document.getElementById(id)
+$('gen').onclick = () => fetch('/api/generate?rate=200&seconds=10', { method: 'POST' })
+function render(s) {
+  if (!s.windows) return
+  $('totals').textContent = `${s.totals.events} events since ${s.since}`
+  $('windows').innerHTML = Object.entries(s.windows).map(([label, w]) => {
+    const rows = Object.entries(w.by_type).sort().map(([t, v]) => `<tr><td>${t}</td><td>${v.n}</td><td>${v.mean ?? ''}</td><td>${v.min?.toFixed?.(1) ?? ''}</td><td>${v.max?.toFixed?.(1) ?? ''}</td></tr>`).join('')
+    return `<h2>Last ${label}: ${w.events} events, ${w.per_second}/s</h2><table><tr><th>Type</th><th>Count</th><th>Mean</th><th>Min</th><th>Max</th></tr>${rows}</table>`
+  }).join('')
+}
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`)
+  ws.onmessage = (e) => render(JSON.parse(e.data))
+  ws.onclose = () => setTimeout(connect, 1000) // a new version took over
+}
+connect()
+</script>
+</body>
+</html>

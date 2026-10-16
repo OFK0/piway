@@ -1,0 +1,18 @@
+piway: 1
+name: events
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 8080
+  env:
+    GREETING: hello from piway.yaml
+  secrets:
+    - EVENTS_TOKEN
+  memory: 256MiB
+  volumes:
+    - data:/data        # snapshot.edn
+  health:
+    path: /healthz
+    start_period: 1m
