@@ -10,6 +10,16 @@ require __DIR__ . '/../src/lib.php';
 $method = $_SERVER['REQUEST_METHOD'];
 $path = rtrim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/', '/') ?: '/';
 
+// Sessions live in Redis, under the app's prefix, so every instance (and
+// the next version, during a deploy) sees them.
+$r = parse_url((string) getenv('REDIS_URL'));
+if (isset($r['host'])) {
+    ini_set('session.save_handler', 'redis');
+    ini_set('session.save_path', sprintf('tcp://%s:%d?auth[]=%s&auth[]=%s&prefix=%s',
+        $r['host'], $r['port'] ?? 6379, rawurlencode(urldecode($r['user'] ?? '')), rawurlencode(urldecode($r['pass'] ?? '')),
+        rawurlencode((string) getenv('REDIS_PREFIX') . 'sess:')));
+}
+
 // The contract endpoints come first: they need no session.
 if ($path === '/healthz') {
     try {
@@ -36,15 +46,6 @@ if ($path === '/api/info') {
     exit;
 }
 
-// Sessions live in Redis, under the app's prefix, so every instance (and
-// the next version, during a deploy) sees them.
-$r = parse_url((string) getenv('REDIS_URL'));
-if (isset($r['host'])) {
-    ini_set('session.save_handler', 'redis');
-    ini_set('session.save_path', sprintf('tcp://%s:%d?auth[]=%s&auth[]=%s&prefix=%s',
-        $r['host'], $r['port'] ?? 6379, rawurlencode(urldecode($r['user'] ?? '')), rawurlencode(urldecode($r['pass'] ?? '')),
-        rawurlencode((string) getenv('REDIS_PREFIX') . 'sess:')));
-}
 session_start(['cookie_httponly' => true, 'cookie_samesite' => 'Lax']);
 $_SESSION['csrf'] ??= bin2hex(random_bytes(16));
 $_SESSION['views'] = ($_SESSION['views'] ?? 0) + 1;
