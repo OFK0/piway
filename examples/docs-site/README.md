@@ -38,6 +38,8 @@ No secrets; deploy.
 | Redeploy | 15 s |
 | Memory | none of its own: piway serves the files |
 
-Found on the way (#144): with `spa: true`, a missing asset such as
-`/assets/nope.js` also gets `index.html` (200, `text/html`) instead of a 404,
-and the fingerprinted build output has no `Cache-Control`.
+Found on the way (#144, fixed): with `spa: true`, a missing asset such as
+`/assets/nope.js` also got `index.html` (200, `text/html`) instead of a
+404, and the fingerprinted build output had no `Cache-Control`. Now it is a
+404, `/about` and `/apps/chat` still get the shell, hashed files are cached
+for a year and `index.html` is revalidated.

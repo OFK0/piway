@@ -244,6 +244,26 @@ func TestServesSites(t *testing.T) {
 	}
 }
 
+// getWith fetches path with headers and returns the status, the headers
+// and the body.
+func getWith(t *testing.T, port int, path string, header map[string]string) (int, http.Header, string) {
+	t.Helper()
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, resp.Header, string(b)
+}
+
 func TestSPAFallback(t *testing.T) {
 	dir := site(t, map[string]string{"index.html": "app shell", "app.js": "js"})
 	r := newRouter(t)
@@ -251,9 +271,86 @@ func TestSPAFallback(t *testing.T) {
 	if err := r.SetSite("web", port, dir, true); err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string]string{"/posts/1": "app shell", "/app.js": "js", "/": "app shell"} {
-		if code, body := getPath(t, port, path); code != 200 || body != want {
-			t.Errorf("GET %s = %d %q, want 200 %q", path, code, body, want)
+	html := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+	for _, tc := range []struct {
+		path   string
+		header map[string]string
+		code   int
+		body   string
+	}{
+		// Pages: client-side routes get the shell.
+		{"/posts/1", nil, 200, "app shell"},
+		{"/posts/1", html, 200, "app shell"},
+		{"/", nil, 200, "app shell"},
+		{"/app.js", nil, 200, "js"},
+		// A navigation to a route that looks like a file (/docs/v1.2).
+		{"/docs/v1.2", html, 200, "app shell"},
+		// Missing files are not pages (#144).
+		{"/assets/old.js", nil, 404, ""},
+		{"/missing.png", map[string]string{"Accept": "image/avif,image/webp,*/*"}, 404, ""},
+		{"/missing.css", map[string]string{"Accept": "text/css,*/*;q=0.1"}, 404, ""},
+		// An API client that wants JSON is not served HTML either.
+		{"/api/things", map[string]string{"Accept": "application/json"}, 404, ""},
+	} {
+		code, _, body := getWith(t, port, tc.path, tc.header)
+		if code != tc.code || (tc.code == 200 && body != tc.body) {
+			t.Errorf("GET %s (Accept %q) = %d %q, want %d %q", tc.path, tc.header["Accept"], code, body, tc.code, tc.body)
+		}
+	}
+}
+
+func TestSiteCacheHeaders(t *testing.T) {
+	dir := site(t, map[string]string{
+		"index.html":                 "shell",
+		"assets/index-BIy_QpcH.js":   "js",
+		"assets/index-CnLye_A9.css":  "css",
+		"assets/main.3f2a9c1d.js":    "js",
+		"css/normalize-document.css": "css",
+		"app.js":                     "js",
+		"favicon.ico":                "icon",
+		"img/photo-2024-05-01.jpg":   "jpg",
+	})
+	r := newRouter(t)
+	port := freePort(t)
+	if err := r.SetSite("web", port, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	const forever = "public, max-age=31536000, immutable"
+	for path, want := range map[string]string{
+		"/assets/index-BIy_QpcH.js":   forever,
+		"/assets/index-CnLye_A9.css":  forever,
+		"/assets/main.3f2a9c1d.js":    forever,
+		"/css/normalize-document.css": "no-cache", // a long word, not a hash
+		"/app.js":                     "no-cache",
+		"/favicon.ico":                "no-cache",
+		"/":                           "no-cache",
+		"/index.html":                 "no-cache",
+		"/some/route":                 "no-cache", // the fallback
+	} {
+		_, h, _ := getWith(t, port, path, nil)
+		if got := h.Get("Cache-Control"); got != want {
+			t.Errorf("GET %s: Cache-Control %q, want %q", path, got, want)
+		}
+	}
+	// A hashed name that is not there is a 404, and never "immutable".
+	if code, h, _ := getWith(t, port, "/assets/gone-Zx9Q2mPa.js", nil); code != 404 || strings.Contains(h.Get("Cache-Control"), "immutable") {
+		t.Errorf("missing hashed file: %d, Cache-Control %q", code, h.Get("Cache-Control"))
+	}
+	// A revalidation answers 304 for a file that did not change.
+	_, h, _ := getWith(t, port, "/app.js", nil)
+	if code, _, _ := getWith(t, port, "/app.js", map[string]string{"If-Modified-Since": h.Get("Last-Modified")}); code != http.StatusNotModified {
+		t.Errorf("conditional GET: %d, want 304", code)
+	}
+}
+
+func TestHashed(t *testing.T) {
+	for name, want := range map[string]bool{
+		"assets/index-BIy_QpcH.js": true, "main.3f2a9c1d.js": true, "chunk-5KJ2N8QX.mjs": true, "vendor.abcdef12.css": true,
+		"normalize-document.css": false, "jquery.min.js": false, "app.js": false, "bootstrap-bundle.js": false,
+		"readme-for-everyone.txt": false, "photo-2024-05-01.jpg": false, "a-b.js": false,
+	} {
+		if got := hashed(name); got != want {
+			t.Errorf("hashed(%q) = %v, want %v", name, got, want)
 		}
 	}
 }
