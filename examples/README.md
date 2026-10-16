@@ -14,8 +14,6 @@ the fixtures of piway's end-to-end tests (#113).
 
 More are on the way (#112): Ruby feeds, Java reports, Clojure events and a static docs site.
 
-More are on the way (#112): Ruby feeds, Java reports, Clojure events and a static docs site.
-
 ## Common contract
 
 Every example app:
