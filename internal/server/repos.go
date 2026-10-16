@@ -39,7 +39,11 @@ type repoEntry struct {
 	Path   string `json:"path,omitempty"` // the app's directory; absent for the root
 	App    string `json:"app,omitempty"`
 	Auth   string `json:"auth,omitempty"` // deploy-key or token; absent when public
-	// For a deploy key: what to paste into GitHub, and where.
+	// Provider is "gitlab" for a GitLab project (on Host, if not gitlab.com);
+	// absent for GitHub.
+	Provider string `json:"provider,omitempty"`
+	Host     string `json:"host,omitempty"`
+	// For a deploy key: what to paste into GitHub or GitLab, and where.
 	PublicKey    string `json:"public_key,omitempty"`
 	DeployKeyURL string `json:"deploy_key_url,omitempty"`
 }
@@ -52,17 +56,20 @@ type accessResult struct {
 	Detail  string       `json:"detail,omitempty"` // git's own words
 }
 
-const webhookPath = "/api/v1/webhooks/github"
+const (
+	webhookPath       = "/api/v1/webhooks/github"
+	gitlabWebhookPath = "/api/v1/webhooks/gitlab"
+)
 
-func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, webhookSecretSet bool, publicURL func(context.Context) (string, string)) {
+func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, webhookSecretSet bool, publicURL func(ctx context.Context, provider string) (string, string)) {
 	if repos == nil {
 		return
 	}
 	entry := func(t webhook.Target, app string) repoEntry {
-		e := repoEntry{Repo: t.Repo, Branch: t.Branch, Path: t.Path, App: app, Auth: t.Auth}
+		e := repoEntry{Repo: t.Repo, Branch: t.Branch, Path: t.Path, App: app, Auth: t.Auth, Provider: t.Provider, Host: t.Host}
 		if t.Auth == gitauth.DeployKey && access != nil {
 			e.PublicKey, _ = access.PublicKey(t.Repo)
-			e.DeployKeyURL = gitauth.DeployKeyURL(t.Repo)
+			e.DeployKeyURL = gitauth.DeployKeyURLFor(t.Provider, t.Host, t.Repo)
 		}
 		return e
 	}
@@ -80,9 +87,10 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 		}
 		// The address GitHub reaches the endpoint at: not the one the
 		// dashboard was opened at, which is often tailnet-only (#140).
-		var url, source string
+		var url, source, glURL, glSource string
 		if publicURL != nil {
-			url, source = publicURL(r.Context())
+			url, source = publicURL(r.Context(), gitauth.GitHub)
+			glURL, glSource = publicURL(r.Context(), gitauth.GitLab)
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -92,6 +100,14 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 				"configured": webhookSecretSet,
 				"url":        url,    // "" when piway knows no public address
 				"url_source": source, // "config" or "tailscale funnel"
+			},
+			// The same for GitLab: its own endpoint, which takes the
+			// secret as a token instead of a signature.
+			"gitlab": map[string]any{
+				"path":       gitlabWebhookPath,
+				"configured": webhookSecretSet,
+				"url":        glURL,
+				"url_source": glSource,
 			},
 			"private": map[string]any{
 				"available": access != nil,
@@ -106,13 +122,24 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 			Branch string `json:"branch"`
 			Path   string `json:"path"`
 			Auth   string `json:"auth"`
+			// "gitlab" for a GitLab project (Repo is its path, Host the
+			// server unless it is gitlab.com).
+			Provider string `json:"provider"`
+			Host     string `json:"host"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, `send {"repo": "owner/name", "branch": "main", "auth": "" | "deploy-key" | "token"}`)
+			writeError(w, http.StatusBadRequest, `send {"repo": "owner/name", "branch": "main", "auth": "" | "deploy-key" | "token", "provider": "" | "gitlab", "host": optional}`)
 			return
 		}
 		t := webhook.Target{Repo: strings.TrimSpace(req.Repo), Branch: strings.TrimSpace(req.Branch),
-			Path: strings.Trim(strings.TrimSpace(req.Path), "/"), Auth: strings.TrimSpace(req.Auth)}
+			Path: strings.Trim(strings.TrimSpace(req.Path), "/"), Auth: strings.TrimSpace(req.Auth),
+			Provider: strings.ToLower(strings.TrimSpace(req.Provider)), Host: strings.ToLower(strings.TrimSpace(req.Host))}
+		if t.Provider == "github" {
+			t.Provider = ""
+		}
+		if t.Host == gitauth.DefaultGitLabHost {
+			t.Host = ""
+		}
 		if t.Branch == "" {
 			t.Branch = "main"
 		}
@@ -186,7 +213,9 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 			writeError(w, http.StatusNotFound, req.Repo+" is not listed")
 			return
 		}
-		src := gitauth.Source{Repo: req.Repo, Auth: webhook.AuthOf(targets, req.Repo)}
+		tg, _ := webhook.TargetOf(targets, req.Repo)
+		src := tg.Source("")
+		src.Repo = req.Repo
 		var err error
 		if access == nil {
 			err = (*gitauth.Access)(nil).Test(r.Context(), src)

@@ -193,3 +193,44 @@ func TestDeployPath(t *testing.T) {
 		t.Errorf("deploy by app: %+v %v", rd, err)
 	}
 }
+
+func TestDeployGitLab(t *testing.T) {
+	var asked []gitauth.Source
+	resolve := func(_ context.Context, src gitauth.Source, branch string) (string, error) {
+		asked = append(asked, src)
+		return strings.Repeat("e", 40), nil
+	}
+	targets := []webhook.Target{
+		{Repo: "grp/sub/app", Branch: "main", Provider: "gitlab"},
+		{Repo: "grp/self", Branch: "main", Provider: "gitlab", Host: "git.example.com", Auth: gitauth.DeployKey},
+	}
+	h := start(t, t.TempDir(), Options{Targets: webhook.StaticTargets(targets), ResolveHead: resolve})
+	ctx := context.Background()
+
+	// gitlab.com, public: cloned from its HTTPS address.
+	b, err := h.p.DeployNow(ctx, DeployRequest{Repo: "grp/sub/app", Branch: "main"}, "api")
+	if err != nil || b.CloneURL != "https://gitlab.com/grp/sub/app.git" {
+		t.Fatalf("build %+v, %v", b, err)
+	}
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, b.ID, Succeeded)
+
+	// A self-hosted server with a deploy key: asked, and fetched, as that.
+	b, err = h.p.DeployNow(ctx, DeployRequest{Repo: "grp/self", Branch: "main"}, "api")
+	if err != nil || b.CloneURL != "https://git.example.com/grp/self.git" {
+		t.Fatalf("build %+v, %v", b, err)
+	}
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, b.ID, Succeeded)
+
+	if len(asked) != 2 || asked[0].Provider != "gitlab" || asked[1].Host != "git.example.com" || asked[1].Auth != gitauth.DeployKey {
+		t.Errorf("head lookups %+v", asked)
+	}
+	h.steps.mu.Lock()
+	defer h.steps.mu.Unlock()
+	if len(h.steps.sources) != 2 || h.steps.sources[0] != "gitlab/" || h.steps.sources[1] != "gitlab/git.example.com" {
+		t.Errorf("fetched as %q", h.steps.sources)
+	}
+}

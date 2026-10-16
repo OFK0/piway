@@ -299,7 +299,9 @@ func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (result, e
 		return res, err
 	}
 
-	b.Auth = webhook.AuthOf(p.configured(), b.Repo)
+	if t, ok := webhook.TargetOf(p.configured(), b.Repo); ok {
+		b.Auth, b.Provider, b.Host = t.Auth, t.Provider, t.Host
+	}
 	fmt.Fprintf(out, "==> Fetching %s@%s (%s)\n", b.Repo, b.Branch, b.Commit)
 	if err := p.opts.Steps.Fetch(ctx, b, dir, out); err != nil {
 		return res, fmt.Errorf("fetch: %w", err)

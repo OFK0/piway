@@ -33,6 +33,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"github.com/ofk0/piway/internal/gitauth"
 )
 
 // MinSecretLen is the shortest secret accepted; GitHub suggests a long
@@ -54,6 +56,21 @@ type Target struct {
 	// with several apps; empty is the root. piway.yaml is read there, and
 	// its paths are relative to it.
 	Path string `yaml:"path,omitempty"`
+	// Provider is where the repository is: GitHub (the default) or
+	// "gitlab". For GitLab, Repo is the project path (group/sub/name),
+	// and Host is the server when it is not gitlab.com. Every branch of
+	// a repository is on one provider.
+	Provider string `yaml:"provider,omitempty"`
+	Host     string `yaml:"host,omitempty"`
+}
+
+// IsGitLab reports whether the target is on GitLab.
+func (t Target) IsGitLab() bool { return gitauth.IsGitLab(t.Provider) }
+
+// Source is how piway reads the target's repository; url is the clone URL
+// a push named, if any.
+func (t Target) Source(url string) gitauth.Source {
+	return gitauth.Source{Repo: t.Repo, Auth: t.Auth, Provider: t.Provider, Host: t.Host, URL: url}
 }
 
 // Name is how the target is written: owner/name@branch, then :path if
@@ -73,8 +90,10 @@ type Request struct {
 	Commit   string // full SHA
 	CloneURL string
 	Pusher   string
-	Delivery string // X-GitHub-Delivery
+	Delivery string // X-GitHub-Delivery, or GitLab's event UUID
 	Path     string // the app's directory (Target.Path)
+	// Provider and Host are the target's.
+	Provider, Host string
 }
 
 // Deployer accepts deploy requests. Deploy must not block for long: the
@@ -198,7 +217,7 @@ func (h *Handler) push(w http.ResponseWriter, r *http.Request, body []byte) {
 		reply(w, http.StatusOK, "ignored", "branch deleted")
 		return
 	}
-	targets := h.wanted(ev.Repo.FullName, branch)
+	targets := h.wanted(ev.Repo.FullName, branch, false, "")
 	if len(targets) == 0 {
 		reply(w, http.StatusOK, "ignored", ev.Repo.FullName+"@"+branch+" is not configured to deploy")
 		return
@@ -226,15 +245,27 @@ func (h *Handler) push(w http.ResponseWriter, r *http.Request, body []byte) {
 	reply(w, http.StatusAccepted, "queued", "")
 }
 
-// wanted returns the targets a push to repo's branch deploys.
-func (h *Handler) wanted(repo, branch string) []Target {
+// wanted returns the targets a push to repo's branch deploys: those on
+// GitLab (on host) for a GitLab push, the others for a GitHub push.
+func (h *Handler) wanted(repo, branch string, gitlab bool, host string) []Target {
 	var out []Target
 	for _, t := range h.targets.Targets() {
-		if strings.EqualFold(t.Repo, repo) && t.Branch == branch {
-			out = append(out, t)
+		if t.IsGitLab() != gitlab || !strings.EqualFold(t.Repo, repo) || t.Branch != branch {
+			continue
 		}
+		if gitlab && !strings.EqualFold(orDefault(t.Host, gitauth.DefaultGitLabHost), host) {
+			continue
+		}
+		out = append(out, t)
 	}
 	return out
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 // recent remembers the last n delivery ids.
