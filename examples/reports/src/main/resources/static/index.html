@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reports</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: 0; } p { color: GrayText; margin-top: .25rem; }
+  ul { list-style: none; padding: 0; display: grid; gap: .5rem; }
+  li { border: 1px solid GrayText; padding: .5rem .75rem; display: grid; gap: .25rem; }
+  progress { width: 100%; } .muted { color: GrayText; font-size: .875rem; }
+</style>
+</head>
+<body>
+<h1>reports</h1>
+<p>Reports from 100,000 sales in MariaDB, generated on a thread pool and followed live.</p>
+<p><button data-kind="csv">Every sale as CSV</button> <button data-kind="pdf">Monthly totals as PDF</button></p>
+<ul id="list"></ul>
+<script>
+const list = document.getElementById('list')
+function render(r) {
+  let li = document.getElementById('r-' + r.id)
+  if (!li) { li = document.createElement('li'); li.id = 'r-' + r.id; list.prepend(li) }
+  const link = r.file ? ` · <a href="/files/${r.id}">${r.file}</a>` : ''
+  li.innerHTML = `<strong>Report ${r.id} (${r.kind})</strong>
+    <span class="muted">${r.state}${r.row_count ? `, ${r.row_count} rows` : ''}${r.error ? ': ' + r.error : ''}${link}</span>
+    <progress max="100" value="${r.progress}"></progress>`
+}
+fetch('/api/reports').then((r) => r.json()).then((all) => all.reverse().forEach(render))
+for (const b of document.querySelectorAll('[data-kind]')) {
+  b.onclick = () => fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: b.dataset.kind }) })
+}
+new EventSource('/events').onmessage = (e) => render(JSON.parse(e.data))
+</script>
+</body>
+</html>
