@@ -91,6 +91,9 @@ run:
     interval: 5s
     timeout: 1s
     start_period: 1m
+  volumes:
+    - data:/data
+    - uploads:/app/public/uploads
 `)
 	want := &Manifest{
 		Version: 1,
@@ -104,6 +107,7 @@ run:
 			MemoryBytes: 1 << 30,
 			CPUs:        0.5,
 			Health:      Health{Path: "/healthz", Interval: 5 * time.Second, Timeout: time.Second, StartPeriod: time.Minute},
+			Volumes:     []Volume{{"data", "/data"}, {"uploads", "/app/public/uploads"}},
 		},
 	}
 	if !reflect.DeepEqual(m, want) {
@@ -154,6 +158,16 @@ func TestInvalid(t *testing.T) {
 		{"reserved name", "piway: 1\nname: www\nstatic: {dir: d}\n", []string{`piway.yaml:2: name: "www" is reserved`}},
 		{"both kinds", "piway: 1\nname: a\nbuild:\nrun: {port: 1}\nstatic: {dir: d}\n", []string{
 			"piway.yaml:5: static: cannot be used with build: an app is either a container (build and run) or a static site",
+		}},
+		{"volumes", "piway: 1\nname: a\nbuild:\nrun:\n  port: 1\n  volumes:\n    - data\n    - Data:/x\n    - db:data\n    - db:/data/../x\n    - etc:/etc/app\n    - root:/\n    - one:/srv\n    - one:/opt\n    - two:/srv/sub\n", []string{
+			`piway.yaml:7: run.volumes[0]: must be name:/path, such as "data:/data", got "data"`,
+			`piway.yaml:8: run.volumes[1]: volume name "Data" must be 1-32 lowercase letters, digits and "-", not starting or ending with "-"`,
+			`piway.yaml:9: run.volumes[2]: "data" must be an absolute, clean path such as /data`,
+			`piway.yaml:10: run.volumes[3]: "/data/../x" must be an absolute, clean path such as /data`,
+			`piway.yaml:11: run.volumes[4]: cannot mount a volume at /etc/app`,
+			`piway.yaml:12: run.volumes[5]: cannot mount a volume at /`,
+			`piway.yaml:14: run.volumes[7]: volume "one" is listed twice`,
+			`piway.yaml:15: run.volumes[8]: /srv/sub overlaps /srv, where volume "one" is mounted`,
 		}},
 		{"build without run", "piway: 1\nname: a\nbuild:\n", []string{
 			"piway.yaml:3: run: is required with build: piway needs at least run.port",

@@ -221,6 +221,25 @@ export const setAppSecret = (app: string, name: string, value: string) =>
 export const removeAppSecret = (app: string, name: string) =>
   deployJSON<AppEnv>(`${envPath(app)}/secrets/${encodeURIComponent(name)}`, { method: 'DELETE' })
 
+// --- Volumes (docs/API.md › /api/v1/apps/{name}/volumes) -------------------
+
+export interface AppVolume {
+  name: string
+  /** Where the live version mounts it; absent for one it no longer declares. */
+  path?: string
+  docker: string
+  declared: boolean
+  /** False for a declared volume no release has made yet. */
+  created: boolean
+  /** Bytes; -1 when unknown. */
+  size_bytes: number
+  in_use: boolean
+}
+export const fetchAppVolumes = (app: string, signal?: AbortSignal) =>
+  deployJSON<{ volumes: AppVolume[] }>(`${envPath(app)}/volumes`, { signal }).then((r) => r.volumes)
+export const removeAppVolume = (app: string, volume: string) =>
+  deployJSON<unknown>(`${envPath(app)}/volumes/${encodeURIComponent(volume)}`, { method: 'DELETE' })
+
 export function buildLogStreamURL(id: string, loc: { protocol: string; host: string } = window.location): string {
   return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/api/v1/builds/${encodeURIComponent(id)}/log/stream`
 }

@@ -129,6 +129,14 @@ type Spec struct {
 	// Memory limits need the memory controller (docs/DOCKER.md).
 	MemoryBytes int64
 	CPUs        float64
+	// Mounts are named volumes, created by CreateVolume first.
+	Mounts []Mount
+}
+
+// Mount puts the named volume Volume at Target inside the container.
+type Mount struct {
+	Volume string
+	Target string
 }
 
 type createBody struct {
@@ -145,6 +153,13 @@ type createHostConfig struct {
 	RestartPolicy restartPolicy            `json:"RestartPolicy"`
 	Memory        int64                    `json:"Memory,omitempty"`
 	NanoCPUs      int64                    `json:"NanoCpus,omitempty"`
+	Mounts        []mountSpec              `json:"Mounts,omitempty"`
+}
+
+type mountSpec struct {
+	Type   string `json:"Type"`
+	Source string `json:"Source"`
+	Target string `json:"Target"`
 }
 
 type portBinding struct {
@@ -174,6 +189,9 @@ func (c *Client) Create(ctx context.Context, name, app string, spec Spec) (id st
 			Memory:        spec.MemoryBytes,
 			NanoCPUs:      int64(spec.CPUs * 1e9),
 		},
+	}
+	for _, m := range spec.Mounts {
+		body.HostConfig.Mounts = append(body.HostConfig.Mounts, mountSpec{Type: "volume", Source: m.Volume, Target: m.Target})
 	}
 	if spec.Port > 0 {
 		p := strconv.Itoa(spec.Port) + "/tcp"
@@ -210,6 +228,58 @@ func (c *Client) Stop(ctx context.Context, id string, grace time.Duration) error
 func (c *Client) Remove(ctx context.Context, id string, force bool) error {
 	q := url.Values{"force": {strconv.FormatBool(force)}}
 	return c.do(ctx, http.MethodDelete, "/containers/"+url.PathEscape(id), q, nil, nil)
+}
+
+// Volume is a named volume and the space it takes.
+type Volume struct {
+	Name      string            `json:"Name"`
+	Labels    map[string]string `json:"Labels"`
+	CreatedAt string            `json:"CreatedAt"`
+	// Mountpoint is where the data is on this machine. With rootless
+	// Docker it belongs to the user piway runs as.
+	Mountpoint string `json:"Mountpoint"`
+	UsageData  *struct {
+		Size     int64 `json:"Size"`     // bytes; -1 if not computed
+		RefCount int64 `json:"RefCount"` // containers that use it
+	} `json:"UsageData"`
+}
+
+// CreateVolume creates the named volume with labels, or returns the one
+// that exists already (Docker treats this as idempotent).
+func (c *Client) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+	body := map[string]any{"Name": name, "Labels": labels}
+	return c.do(ctx, http.MethodPost, "/volumes/create", nil, body, nil)
+}
+
+// Volumes returns the volumes with label set, with their sizes. Sizes
+// come from the daemon's disk usage report, which walks each volume.
+func (c *Client) Volumes(ctx context.Context, label string) ([]Volume, error) {
+	var out struct {
+		Volumes     []Volume `json:"Volumes"`
+		VolumeUsage *struct {
+			Items []Volume `json:"Items"`
+		} `json:"VolumeUsage"` // newer daemons
+	}
+	if err := c.do(ctx, http.MethodGet, "/system/df", url.Values{"type": {"volume"}}, nil, &out); err != nil {
+		return nil, err
+	}
+	all := out.Volumes
+	if len(all) == 0 && out.VolumeUsage != nil {
+		all = out.VolumeUsage.Items
+	}
+	var vs []Volume
+	for _, v := range all {
+		if _, ok := v.Labels[label]; ok {
+			vs = append(vs, v)
+		}
+	}
+	return vs, nil
+}
+
+// RemoveVolume deletes a volume and its data. A volume a container uses
+// is refused with ErrConflict.
+func (c *Client) RemoveVolume(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/volumes/"+url.PathEscape(name), nil, nil, nil)
 }
 
 // Container is a summary of one container.

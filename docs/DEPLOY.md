@@ -310,6 +310,52 @@ through the MCP server, the environment shows names and whether each is
 set, never values, and secrets cannot be changed. Responses with values are
 not cached, and values are never logged.
 
+### Volumes
+
+Every deploy starts a new container, so anything an app writes inside it
+is gone after the next one. Data that must last goes in a volume:
+
+```yaml
+run:
+  port: 3000
+  volumes:
+    - data:/data        # name:/path inside the container
+```
+
+piway creates the Docker volume `piway-<app>_<name>` on the first release
+that declares it and mounts it at that path in every container of the app
+after that. It survives deploys, restarts and rollbacks. During a deploy the
+old container keeps serving while the new one starts, so **both mount the
+same volume for a few seconds**; see SQLite below.
+
+The app's page lists its volumes with their size. A volume piway.yaml no
+longer declares is kept, data and all, and marked *not declared*; it can be
+deleted there once no container uses it. piway never deletes a volume on
+its own: removing the repository or the app leaves its volumes in place.
+
+With rootless Docker the files belong to the user piway runs as, under
+`~/.local/share/docker/volumes/`. Backing up volumes is #110's next step.
+
+#### SQLite
+
+SQLite works well on a volume, with two rules:
+
+- **Use WAL mode** (`PRAGMA journal_mode=WAL;` once, when the database is
+  opened). Readers and a writer can then work at the same time, which is
+  what happens while two containers share the file during a deploy. Keep the
+  `-wal` and `-shm` files next to the database, in the volume. Set a busy
+  timeout (`PRAGMA busy_timeout=5000;`) so a write that meets the other
+  container's lock waits instead of failing.
+- **Make migrations backward compatible.** The new version may migrate the
+  database while the old one still serves requests against it. Add columns
+  and tables first; drop or rename them in a later deploy, once no running
+  version needs them. A rollback runs the previous image against the
+  current schema, so the same rule keeps rollbacks safe.
+
+Do not copy a live database file to back it up: use SQLite's own
+`.backup` (or `VACUUM INTO`), which takes a consistent copy while the app
+runs.
+
 ### Limits
 
 `run.memory` and `run.cpus` become cgroup limits. Raspberry Pi OS boots with

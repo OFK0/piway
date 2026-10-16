@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/ofk0/piway/internal/deploy"
+	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/secrets"
 )
 
@@ -290,4 +291,43 @@ func (f *fakeBuilds) RemoveSecret(app, name string) error {
 	}
 	delete(f.secrets, name)
 	return nil
+}
+
+func (f *fakeBuilds) Volumes(_ context.Context, app string) ([]deploy.AppVolume, error) {
+	if app != "guestbook" {
+		return nil, deploy.ErrNotFound
+	}
+	return []deploy.AppVolume{{Name: "data", Path: "/data", Docker: "piway-guestbook_data", Declared: true, Created: true, Size: 4096, InUse: true}}, nil
+}
+
+func (f *fakeBuilds) RemoveVolume(_ context.Context, app, volume string) error {
+	switch {
+	case app != "guestbook":
+		return deploy.ErrNotFound
+	case volume == "data":
+		return deploy.ErrVolumeDeclared
+	case volume == "busy":
+		return docker.ErrConflict
+	case volume == "old":
+		return nil
+	}
+	return docker.ErrNotFound
+}
+
+func TestVolumesAPI(t *testing.T) {
+	h := buildsServer(t, &fakeBuilds{})
+	if w := call(h, "GET", "/api/v1/apps/guestbook/volumes", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"size_bytes":4096`) {
+		t.Errorf("list: %d %s", w.Code, w.Body)
+	}
+	for path, want := range map[string]int{
+		"/api/v1/apps/nope/volumes/x":         404,
+		"/api/v1/apps/guestbook/volumes/data": 409,
+		"/api/v1/apps/guestbook/volumes/busy": 409,
+		"/api/v1/apps/guestbook/volumes/none": 404,
+		"/api/v1/apps/guestbook/volumes/old":  204,
+	} {
+		if w := call(h, "DELETE", path, ""); w.Code != want {
+			t.Errorf("DELETE %s: %d, want %d", path, w.Code, want)
+		}
+	}
 }

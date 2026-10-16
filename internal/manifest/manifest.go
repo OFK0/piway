@@ -50,6 +50,14 @@ type Run struct {
 	MemoryBytes int64
 	CPUs        float64
 	Health      Health
+	Volumes     []Volume // in file order
+}
+
+// Volume is a named, per-app volume mounted at Path. It survives deploys,
+// restarts and rollbacks.
+type Volume struct {
+	Name string // a-z, 0-9 and -
+	Path string // absolute path inside the container
 }
 
 // Health is the HTTP check that decides whether a new version may take
@@ -308,7 +316,8 @@ func (d *decoder) run(n *yaml.Node, p string) *Run {
 				r.CPUs = f
 			}
 		},
-		"health": func(v *yaml.Node, p string) { d.health(v, p, &r.Health) },
+		"health":  func(v *yaml.Node, p string) { d.health(v, p, &r.Health) },
+		"volumes": func(v *yaml.Node, p string) { r.Volumes = d.volumes(v, p) },
 	})
 	d.require(n, p, set, "port")
 	// A secret must not also have a value in the repository.
@@ -319,6 +328,53 @@ func (d *decoder) run(n *yaml.Node, p string) *Run {
 	}
 	return r
 }
+
+var volumeName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// volumes decodes run.volumes: a list of "name:/path".
+func (d *decoder) volumes(n *yaml.Node, p string) []Volume {
+	items, ok := d.strings(n, p)
+	if !ok {
+		return nil
+	}
+	var out []Volume
+	for i, item := range items {
+		node, ip := n.Content[i], fmt.Sprintf("%s[%d]", p, i)
+		name, mount, found := strings.Cut(item, ":")
+		switch {
+		case !found:
+			d.add(node, ip, `must be name:/path, such as "data:/data", got %q`, item)
+			continue
+		case !volumeName.MatchString(name):
+			d.add(node, ip, "volume name %q must be 1-32 lowercase letters, digits and \"-\", not starting or ending with \"-\"", name)
+			continue
+		case !strings.HasPrefix(mount, "/") || path.Clean(mount) != mount:
+			d.add(node, ip, "%q must be an absolute, clean path such as /data", mount)
+			continue
+		case mount == "/" || slices.ContainsFunc(systemDirs, func(dir string) bool { return mount == dir || strings.HasPrefix(mount, dir+"/") }):
+			d.add(node, ip, "cannot mount a volume at %s", mount)
+			continue
+		}
+		bad := false
+		for _, v := range out {
+			switch {
+			case v.Name == name:
+				d.add(node, ip, "volume %q is listed twice", name)
+				bad = true
+			case v.Path == mount || strings.HasPrefix(mount, v.Path+"/") || strings.HasPrefix(v.Path, mount+"/"):
+				d.add(node, ip, "%s overlaps %s, where volume %q is mounted", mount, v.Path, v.Name)
+				bad = true
+			}
+		}
+		if !bad {
+			out = append(out, Volume{Name: name, Path: mount})
+		}
+	}
+	return out
+}
+
+// systemDirs hold the container's own system; a volume there would hide it.
+var systemDirs = []string{"/bin", "/dev", "/etc", "/lib", "/proc", "/sbin", "/sys", "/usr"}
 
 func (d *decoder) health(n *yaml.Node, p string, h *Health) {
 	set := d.mapping(n, p, fields{
