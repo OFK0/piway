@@ -376,6 +376,19 @@ With rootless Docker the files belong to the user piway runs as, under
 `~/.local/share/docker/volumes/`. `piway backup` includes every volume
 ([BACKUP.md](BACKUP.md)).
 
+#### State in files
+
+During a deploy the old and the new version run side by side for a few
+seconds, and the old one is stopped (SIGTERM) only after traffic switched.
+State an app keeps in files on a volume must survive that overlap: a file
+the new version reads when it starts may still change, because the old one
+keeps working until it stops. Either share the state while both run
+(SQLite, below, or a database from `run.databases`), or hand it over
+explicitly: the old version writes a final copy on SIGTERM, and the new one
+waits for it before writing its own. The
+[events example](https://github.com/OFK0/piway/tree/main/examples/events)
+does the second.
+
 #### SQLite
 
 SQLite works well on a volume, with two rules:
