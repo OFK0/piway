@@ -4,13 +4,15 @@ FROM ruby:3.4-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY Gemfile Gemfile.lock ./
-RUN bundle config set --local deployment true && bundle config set --local without development \
- && bundle install --jobs 4
+# The image installs gems into /usr/local/bundle (GEM_HOME), with its
+# settings there too; that one directory is what the next stage needs.
+ENV BUNDLE_FROZEN=true BUNDLE_WITHOUT=development
+RUN bundle install --jobs 4
 
 FROM ruby:3.4-slim
 WORKDIR /app
-COPY --from=build /app/vendor /app/vendor
-COPY --from=build /app/.bundle /app/.bundle
+ENV BUNDLE_FROZEN=true BUNDLE_WITHOUT=development
+COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY Gemfile Gemfile.lock app.rb config.ru puma.rb index.html ./
 # An unprivileged user, and a /data it owns: a new volume mounted there
 # starts as a copy of it, so the app can write its database.
