@@ -33,6 +33,8 @@ run:
   memory: 256MiB
   health:
     path: /healthz
+  volumes:
+    - data:/data
 ```
 
 The Dockerfile must produce an image for `linux/arm64`; a multi-arch base
@@ -83,6 +85,7 @@ static:
 | `run.health.interval` | duration | `10s` | Time between checks. |
 | `run.health.timeout` | duration | `2s` | Must be shorter than `interval`. |
 | `run.health.start_period` | duration | `30s` | Failures in this window after start do not count. |
+| `run.volumes` | list of `name:/path` | | Named volumes that keep their data across deploys, restarts and rollbacks ([DEPLOY.md](DEPLOY.md#volumes)). Names are 1–32 characters of `a-z`, `0-9` and `-`. Paths are absolute and clean, cannot be `/` or under `/bin`, `/dev`, `/etc`, `/lib`, `/proc`, `/sbin`, `/sys` or `/usr`, and cannot overlap. |
 | `static` | mapping | | Static site. Not allowed with `build` or `run`. |
 | `static.dir` | path | required | Directory to serve, relative to the repository root. |
 | `static.spa` | boolean | `false` | Serve `index.html` for paths that do not exist, for client-side routing. |

@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/ofk0/piway/internal/deploy"
+	"github.com/ofk0/piway/internal/docker"
 )
 
 // Builds is the build pipeline as the API sees it. *deploy.Pipeline
@@ -30,6 +31,8 @@ type Builds interface {
 	Env(ctx context.Context, app string, values bool) (deploy.AppEnv, error)
 	SetSecret(app, name, value string) error
 	RemoveSecret(app, name string) error
+	Volumes(ctx context.Context, app string) ([]deploy.AppVolume, error)
+	RemoveVolume(ctx context.Context, app, volume string) error
 }
 
 func buildRoutes(mux *http.ServeMux, b Builds) {
@@ -53,6 +56,8 @@ func buildRoutes(mux *http.ServeMux, b Builds) {
 	mux.HandleFunc("POST /api/v1/apps/{name}/restart", h(restart))
 	mux.HandleFunc("POST /api/v1/apps/{name}/deploy", h(deployApp))
 	mux.HandleFunc("GET /api/v1/apps/{name}/logs", h(appLogs))
+	mux.HandleFunc("GET /api/v1/apps/{name}/volumes", h(appVolumes))
+	mux.HandleFunc("DELETE /api/v1/apps/{name}/volumes/{volume}", h(removeVolume))
 	mux.HandleFunc("POST /api/v1/deploys", h(deployTarget))
 	mux.HandleFunc("GET /api/v1/targets", h(listTargets))
 }
@@ -270,5 +275,33 @@ func streamBuildLog(w http.ResponseWriter, r *http.Request, b Builds) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func appVolumes(w http.ResponseWriter, r *http.Request, b Builds) {
+	vs, err := b.Volumes(r.Context(), r.PathValue("name"))
+	switch {
+	case errors.Is(err, deploy.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no app with that name is running a successful build")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"volumes": vs})
+	}
+}
+
+func removeVolume(w http.ResponseWriter, r *http.Request, b Builds) {
+	err := b.RemoveVolume(r.Context(), r.PathValue("name"), r.PathValue("volume"))
+	switch {
+	case errors.Is(err, deploy.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no app with that name is running a successful build")
+	case errors.Is(err, docker.ErrNotFound):
+		writeError(w, http.StatusNotFound, "the app has no such volume")
+	case errors.Is(err, deploy.ErrVolumeDeclared), errors.Is(err, docker.ErrConflict):
+		writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

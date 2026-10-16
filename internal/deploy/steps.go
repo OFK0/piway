@@ -73,6 +73,49 @@ func (s ExecSteps) Image(ctx context.Context, m *manifest.Manifest, dir, image s
 	return s.command(ctx, out, dir, "docker", args...)
 }
 
+// LabelVolume on a volume is its name in run.volumes; LabelApp names
+// the app.
+const LabelVolume = "piway.volume"
+
+// VolumeName is the Docker volume behind an app's run.volumes entry. App
+// names have no "_", so the name is unambiguous.
+func VolumeName(app, volume string) string { return "piway-" + app + "_" + volume }
+
+// volumes makes sure the app's volumes exist and returns their mounts.
+// The old and the new container mount the same volumes during a release.
+func (s ExecSteps) volumes(ctx context.Context, m *manifest.Manifest, out io.Writer) ([]docker.Mount, error) {
+	var mounts []docker.Mount
+	for _, v := range m.Run.Volumes {
+		name := VolumeName(m.Name, v.Name)
+		if err := s.Docker.CreateVolume(ctx, name, map[string]string{docker.LabelApp: m.Name, LabelVolume: v.Name}); err != nil {
+			return nil, fmt.Errorf("volume %s: %w", v.Name, err)
+		}
+		fmt.Fprintf(out, "Volume %s (%s) at %s\n", v.Name, name, v.Path)
+		mounts = append(mounts, docker.Mount{Volume: name, Target: v.Path})
+	}
+	return mounts, nil
+}
+
+// AppVolumes returns the Docker volumes piway made for app.
+func (s ExecSteps) AppVolumes(ctx context.Context, app string) ([]docker.Volume, error) {
+	all, err := s.Docker.Volumes(ctx, LabelVolume)
+	if err != nil {
+		return nil, err
+	}
+	var out []docker.Volume
+	for _, v := range all {
+		if v.Labels[docker.LabelApp] == app {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// RemoveAppVolume deletes one of app's volumes and its data.
+func (s ExecSteps) RemoveAppVolume(ctx context.Context, app, volume string) error {
+	return s.Docker.RemoveVolume(ctx, VolumeName(app, volume))
+}
+
 // LabelSecrets on a container is the digest of the secret values it was
 // started with, so the app page can tell when they changed since.
 const LabelSecrets = "piway.secrets"
@@ -114,8 +157,14 @@ func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, o
 		}
 	}
 
+	mounts, err := s.volumes(ctx, m, out)
+	if err != nil {
+		return err
+	}
+
 	name := "piway-" + m.Name + "-" + strings.ToLower(b.ID)
 	id, err := s.Docker.Create(ctx, name, m.Name, docker.Spec{
+		Mounts:      mounts,
 		Image:       b.Image,
 		Cmd:         m.Run.Command,
 		Env:         env,

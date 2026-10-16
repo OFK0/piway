@@ -24,6 +24,7 @@ type fakeDaemon struct {
 	containers map[string]*fakeContainer // by id
 	lastCreate createBody
 	nextID     int
+	volumes    map[string]map[string]string // name -> labels
 }
 
 type fakeContainer struct {
@@ -44,7 +45,7 @@ func startFake(t *testing.T) (*Client, *fakeDaemon) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeDaemon{containers: map[string]*fakeContainer{}}
+	f := &fakeDaemon{containers: map[string]*fakeContainer{}, volumes: map[string]map[string]string{}}
 	srv := &http.Server{Handler: f.routes()}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -101,6 +102,49 @@ func (f *fakeDaemon) routes() http.Handler {
 		f.lastCreate = body
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]string{"Id": id})
+	})
+	mux.HandleFunc("POST "+v+"/volumes/create", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name   string
+			Labels map[string]string
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if _, ok := f.volumes[body.Name]; !ok {
+			f.volumes[body.Name] = body.Labels
+		}
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"Name": body.Name, "Labels": f.volumes[body.Name]})
+	})
+	mux.HandleFunc("GET "+v+"/system/df", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		var items []map[string]any
+		for name, labels := range f.volumes {
+			items = append(items, map[string]any{"Name": name, "Labels": labels, "UsageData": map[string]int{"Size": 4096, "RefCount": 1}})
+		}
+		// The newer shape only, as recent daemons send it with verbose.
+		json.NewEncoder(w).Encode(map[string]any{"VolumeUsage": map[string]any{"Items": items}})
+	})
+	mux.HandleFunc("DELETE "+v+"/volumes/{name}", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		name := r.PathValue("name")
+		if _, ok := f.volumes[name]; !ok {
+			writeMsg(w, 404, "get "+name+": no such volume")
+			return
+		}
+		for _, c := range f.containers {
+			for _, m := range f.lastCreate.HostConfig.Mounts {
+				if m.Source == name && c.state == "running" {
+					writeMsg(w, 409, "remove "+name+": volume is in use")
+					return
+				}
+			}
+		}
+		delete(f.volumes, name)
+		w.WriteHeader(204)
 	})
 	mux.HandleFunc("POST "+v+"/containers/{id}/start", f.transition("running"))
 	mux.HandleFunc("POST "+v+"/containers/{id}/stop", f.transition("exited"))
@@ -408,5 +452,44 @@ func TestDemux(t *testing.T) {
 	}
 	if _, err := demux(bytes.NewReader(in[:12])); err == nil {
 		t.Error("a truncated frame was not an error")
+	}
+}
+
+func TestVolumes(t *testing.T) {
+	c, f := startFake(t)
+	labels := map[string]string{LabelApp: "photos", "piway.volume": "data"}
+	for range 2 { // creating it again is fine
+		if err := c.CreateVolume(ctx, "piway-photos_data", labels); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.volumes["someone-elses"] = map[string]string{}
+
+	id, err := c.Create(ctx, "photos-1", "photos", Spec{Image: "a", Mounts: []Mount{{Volume: "piway-photos_data", Target: "/data"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := f.lastCreate.HostConfig.Mounts; len(m) != 1 || m[0] != (mountSpec{Type: "volume", Source: "piway-photos_data", Target: "/data"}) {
+		t.Errorf("mounts = %+v", m)
+	}
+
+	vs, err := c.Volumes(ctx, LabelApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 1 || vs[0].Name != "piway-photos_data" || vs[0].Labels["piway.volume"] != "data" || vs[0].UsageData == nil || vs[0].UsageData.Size != 4096 {
+		t.Errorf("volumes = %+v", vs)
+	}
+
+	c.Start(ctx, id)
+	if err := c.RemoveVolume(ctx, "piway-photos_data"); !errors.Is(err, ErrConflict) {
+		t.Errorf("removing a volume in use: %v, want ErrConflict", err)
+	}
+	c.Remove(ctx, id, true)
+	if err := c.RemoveVolume(ctx, "piway-photos_data"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemoveVolume(ctx, "piway-photos_data"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("removing it again: %v, want ErrNotFound", err)
 	}
 }
