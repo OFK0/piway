@@ -355,6 +355,11 @@ func TestToken(t *testing.T) {
 		cgiHandler.ServeHTTP(w, r)
 	}))
 	defer srv.Close()
+	sent := func(user string) bool { // whether a request came with this user name
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(users, user)
+	}
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -373,11 +378,11 @@ func TestToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", global)
-	if err := a.Test(context.Background(), src); err == nil || slices.Contains(users, "helper") {
-		t.Fatalf("with no token stored: %v; users %q", err, users)
+	if err := a.Test(context.Background(), src); err == nil || sent("helper") {
+		t.Fatalf("with no token stored: %v", err)
 	}
-	if err := a.Test(context.Background(), Source{Repo: "o/app"}); err == nil || slices.Contains(users, "helper") {
-		t.Fatalf("a public source used the helper: %v; users %q", err, users)
+	if err := a.Test(context.Background(), Source{Repo: "o/app"}); err == nil || sent("helper") {
+		t.Fatalf("a public source used the helper: %v", err)
 	}
 
 	if err := a.SetToken(token); err != nil {
@@ -387,8 +392,8 @@ func TestToken(t *testing.T) {
 	if err != nil || sha != head {
 		t.Fatalf("Head = %q, %v; want %s", sha, err, head)
 	}
-	if !slices.Contains(users, tokenUser) {
-		t.Errorf("users sent: %q", users)
+	if !sent(tokenUser) {
+		t.Errorf("no request with user %q", tokenUser)
 	}
 
 	// A fetch writes git's output to the build log; the token is not in it.
