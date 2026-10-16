@@ -27,6 +27,9 @@ const dbUsage = `usage: piway db <command>
   restore [-engine e] [-from file] [-yes] app
                                      replace an app's database with a backup
                                      (the newest unless -from)
+  upgrade [-to image] [-yes] engine  move postgres, mariadb or redis to the major
+                                     version this piway pins (or -to), by dump
+                                     and restore; rolls back if anything fails
 
 Backups are logical dumps (pg_dump, mariadb-dump, Redis DUMP), one file per
 app and engine, kept 7 deep. piway makes them every night at 03:30. Copy
@@ -76,7 +79,8 @@ func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []str
 	fs.SetOutput(stderr)
 	engine := fs.String("engine", "", "restore: the `engine` (postgres, mariadb or redis) when the app has several")
 	from := fs.String("from", "", "restore: the backup `file` (default the newest)")
-	yes := fs.Bool("yes", false, "restore: do not ask for confirmation")
+	yes := fs.Bool("yes", false, "restore, upgrade: do not ask for confirmation")
+	to := fs.String("to", "", "upgrade: the `image` to move to (default the one this piway pins)")
 	var rest []string
 	for len(args) > 0 { // flags may follow the app
 		if err := fs.Parse(args); err != nil {
@@ -203,6 +207,32 @@ func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []str
 			return 1
 		}
 		fmt.Fprintf(stdout, "Restored %s's %s database from %s. Restart the app: its page, or POST /api/v1/apps/%s/restart.\n", app, e, path, app)
+		return 0
+
+	case "upgrade":
+		if app == "" || !databases.Known(app) {
+			fmt.Fprintln(stderr, "usage: piway db upgrade [-to image] [-yes] postgres|mariadb|redis")
+			return 2
+		}
+		engine := app
+		current, err := m.Current(ctx, engine)
+		if err != nil {
+			fmt.Fprintln(stderr, "piway:", err)
+			return 1
+		}
+		target := *to
+		if target == "" {
+			target = m.Pinned(engine)
+		}
+		apps, _ := m.Apps(engine)
+		if !*yes && !confirm(stdin, stderr, fmt.Sprintf("This moves %s from %s to %s: it backs up %d apps' databases, starts the new version on a new volume and loads them.\nThe apps see errors meanwhile; restart them afterwards. Type the engine's name to go on: ", engine, current, target, len(apps)), engine) {
+			fmt.Fprintln(stderr, "Nothing changed.")
+			return 1
+		}
+		if err := m.Upgrade(ctx, engine, target, stdout); err != nil {
+			fmt.Fprintln(stderr, "piway:", err)
+			return 1
+		}
 		return 0
 	}
 	fmt.Fprintln(stderr, dbUsage)

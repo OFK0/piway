@@ -319,6 +319,11 @@ func (c *Client) RemoveVolume(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/volumes/"+url.PathEscape(name), nil, nil, nil)
 }
 
+// Rename gives a container another name.
+func (c *Client) Rename(ctx context.Context, id, name string) error {
+	return c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/rename", url.Values{"name": {name}}, nil, nil)
+}
+
 // Container is a summary of one container.
 type Container struct {
 	ID      string            `json:"Id"`
