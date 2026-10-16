@@ -237,6 +237,13 @@ public class Reports {
         e.onCompletion(() -> listeners.remove(e));
         e.onTimeout(() -> listeners.remove(e));
         e.onError(t -> listeners.remove(e));
+        // Spring sends the response headers with the first event; without
+        // one the client waits (and may time out) until a report changes.
+        try {
+            e.send(SseEmitter.event().comment("connected"));
+        } catch (IOException gone) {
+            listeners.remove(e);
+        }
         return e;
     }
 
