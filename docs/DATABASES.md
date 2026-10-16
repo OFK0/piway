@@ -78,10 +78,44 @@ Engines created before the move keep the settings they started with;
 remove their containers to pick up the new ones (the data is in their
 volumes and stays).
 
+## Backups
+
+Every night at 03:30 piway makes a **logical backup** of each app's
+database on each engine that runs, one gzipped file per app and engine,
+and keeps the newest 7:
+
+| Engine | How | File |
+| ------ | --- | ---- |
+| PostgreSQL | `pg_dump` as plain SQL, without owners or grants | `~/.local/state/piway/db-backups/postgres/<app>/<time>.sql.gz` |
+| MariaDB | `mariadb-dump --single-transaction` (a consistent snapshot, without locking the app out) | `…/mariadb/<app>/<time>.sql.gz` |
+| Redis | every key under `<app>:` with `DUMP` and its time to live | `…/redis/<app>/<time>.redis.gz` |
+
+A logical dump is consistent while the app keeps writing, and it restores
+into a newer major version, which a copy of the data directory does not.
+
+```sh
+piway db backup                 # every app, now
+piway db backup blog            # one app
+piway db list                   # what there is
+piway db restore blog           # the newest backup of blog's database
+piway db restore -engine redis -from …/redis/blog/20261016-033000.redis.gz blog
+```
+
+`piway db restore` asks for the app's name before it starts (`-yes` skips
+that, for scripts). It **replaces** the database: it drops it, makes it
+again with the same user and password, and loads the dump, so the app sees
+errors while it runs. Restart the app afterwards. A PostgreSQL dump is
+loaded as the app's own role, so it owns what it had; for Redis, the app's
+keys are cleared first and the backed-up ones come back with their time to
+live.
+
+**Copy backups off the Pi.** A backup on the same SD card is lost with the
+card. `piway backup` ([BACKUP.md](BACKUP.md)) includes the database backups
+along with everything else; copy its archive elsewhere, or sync
+`~/.local/state/piway/db-backups/` to another machine.
+
 ## Data
 
-Each engine keeps its data in a volume, `piway-db-postgres`,
-`piway-db-mariadb` or `piway-db-redis`. `piway backup` includes them; for a
-database that is still being written, a logical dump (`pg_dump`,
-`mariadb-dump`) is the safer backup, which comes with #114's next step.
-Removing an app or its repository leaves its database in place.
+Each engine keeps its data in a volume named after it and its major
+version, such as `piway-db-postgres-17`. Removing an app or its repository
+leaves its database, and its backups, in place.

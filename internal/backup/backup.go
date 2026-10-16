@@ -83,7 +83,7 @@ type Volume struct {
 // stateKept are the parts of the data directory a backup includes.
 // Sessions are left out on purpose: they are short-lived credentials,
 // and signing in again is cheap.
-var stateKept = []string{"deploys", "push", "tokens.json"}
+var stateKept = []string{"db-backups", "deploys", "push", "tokens.json"}
 
 // metricsDirs hold the metrics history.
 var metricsDirs = []string{"raw", "1m", "1h"}
