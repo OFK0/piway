@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>thumbnailer</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: 0; } p { color: GrayText; margin-top: .25rem; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  ul { list-style: none; padding: 0; display: grid; gap: .75rem; }
+  li { border: 1px solid GrayText; padding: .75rem; display: grid; gap: .5rem; }
+  progress { width: 100%; }
+  .thumbs { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
+  .thumbs img { max-width: 128px; height: auto; }
+  .muted { color: GrayText; font-size: .875rem; }
+</style>
+</head>
+<body>
+<h1>thumbnailer</h1>
+<p>Upload an image: a background worker makes 128, 512 and 1024 px thumbnails, and this page follows it live.</p>
+<form id="up"><input type="file" name="file" accept="image/*" required> <button>Upload</button></form>
+<ul id="jobs"></ul>
+<script>
+const list = document.getElementById('jobs')
+const jobs = new Map()
+function render(j) {
+  let li = document.getElementById('j-' + j.id)
+  if (j.state === 'expired') { li?.remove(); return }
+  if (!li) { li = document.createElement('li'); li.id = 'j-' + j.id; list.prepend(li) }
+  const thumbs = (j.thumbs || []).map((t) => `<a href="/files/${j.id}/${t}"><img src="/files/${j.id}/${t}" alt="${t}"></a>`).join('')
+  li.innerHTML = `<strong>${j.name ?? j.id}</strong>
+    <span class="muted">${j.state}${j.seconds ? `, ${j.seconds} s` : ''}${j.error ? ': ' + j.error : ''}</span>
+    <progress max="100" value="${j.progress ?? 0}"></progress><div class="thumbs">${thumbs}</div>`
+}
+fetch('/api/jobs').then((r) => r.json()).then((all) => all.reverse().forEach(render))
+document.getElementById('up').onsubmit = async (e) => {
+  e.preventDefault()
+  const r = await fetch('/api/images', { method: 'POST', body: new FormData(e.target) })
+  if (!r.ok) alert((await r.json()).detail ?? r.statusText)
+  e.target.reset()
+}
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`)
+  ws.onmessage = (e) => render(JSON.parse(e.data))
+  ws.onclose = () => setTimeout(connect, 2000)
+}
+connect()
+</script>
+</body>
+</html>

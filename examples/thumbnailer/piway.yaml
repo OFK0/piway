@@ -1,0 +1,18 @@
+piway: 1
+name: thumbnailer
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 8000
+  env:
+    GREETING: hello from piway.yaml
+    EXPIRE_MINUTES: "60"
+  secrets:
+    - THUMB_TOKEN
+  memory: 256MiB
+  volumes:
+    - data:/data
+  health:
+    path: /healthz
