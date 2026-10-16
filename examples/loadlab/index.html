@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loadlab</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: 0; }
+  p { color: GrayText; margin-top: .25rem; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; font-variant-numeric: tabular-nums; }
+  dt { color: GrayText; }
+  fieldset { border: 1px solid GrayText; margin: 1rem 0; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+  input { width: 5rem; }
+  button { padding: .25rem .75rem; }
+</style>
+</head>
+<body>
+<h1>loadlab</h1>
+<p>Put load on the Pi on purpose, and watch what piway does.</p>
+
+<dl id="stats"><dt>Connecting…</dt><dd></dd></dl>
+
+<fieldset><legend>CPU</legend>
+  <label>workers <input id="workers" type="number" value="1" min="1"></label>
+  <label>seconds <input id="cpus" type="number" value="10" min="1"></label>
+  <button data-go="cpu">Burn</button>
+</fieldset>
+<fieldset><legend>Memory</legend>
+  <label>MiB <input id="mb" type="number" value="50" min="1"></label>
+  <label>seconds <input id="mems" type="number" value="30" min="1"></label>
+  <button data-go="mem">Allocate</button>
+</fieldset>
+<fieldset><legend>Disk (the data volume)</legend>
+  <label>MiB <input id="dmb" type="number" value="10" min="1"></label>
+  <button data-go="disk">Write</button>
+  <button data-go="clear">Delete files</button>
+</fieldset>
+<p id="msg" role="status"></p>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const mib = (n) => (n / 1048576).toFixed(1) + ' MiB'
+const calls = {
+  cpu: () => fetch(`/cpu?workers=${$('workers').value}&seconds=${$('cpus').value}`, { method: 'POST' }),
+  mem: () => fetch(`/mem?mb=${$('mb').value}&seconds=${$('mems').value}`, { method: 'POST' }),
+  disk: () => fetch(`/disk?mb=${$('dmb').value}`, { method: 'POST' }),
+  clear: () => fetch('/disk', { method: 'DELETE' }),
+}
+for (const b of document.querySelectorAll('[data-go]')) {
+  b.onclick = async () => {
+    const r = await calls[b.dataset.go]().catch((e) => ({ ok: false, statusText: String(e) }))
+    $('msg').textContent = r.ok ? JSON.stringify(await r.json()) : `Failed: ${r.status ?? ''} ${r.statusText}`
+  }
+}
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`)
+  ws.onmessage = (e) => {
+    const s = JSON.parse(e.data)
+    const rows = [
+      ['CPU workers', s.cpu_workers],
+      ['Memory held', s.held_mb + ' MiB'],
+      ['Process RSS', mib(s.rss_bytes)],
+      ['Container', mib(s.cgroup_bytes) + (s.limit_bytes ? ' of ' + mib(s.limit_bytes) : ' (no limit)')],
+      ['Disk written', mib(s.disk_bytes)],
+    ]
+    $('stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
+  }
+  ws.onclose = () => setTimeout(connect, 2000)
+}
+connect()
+</script>
+</body>
+</html>
