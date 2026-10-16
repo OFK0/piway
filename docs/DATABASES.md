@@ -36,7 +36,10 @@ backup. **Back up now** runs the nightly backup at once.
   `postgres` database) refuse it.
 - **Redis**: each app has an ACL user limited to keys and channels that
   start with `<app>:` (use `REDIS_PREFIX`). Commands that reach beyond them,
-  such as `FLUSHALL`, `KEYS` and `CONFIG`, are refused.
+  such as `FLUSHALL`, `KEYS` and `CONFIG`, are refused. For pub/sub, note
+  that Redis compares a `PSUBSCRIBE` pattern literally with the allowed
+  channels: subscribe to `<app>:*` itself and filter, not to a narrower
+  pattern such as `<app>:room:*` (see the chat example).
 - **Network**: the engines are on `piway-db`, an internal Docker network.
   Apps that use a database join it; nothing on it is published on the Pi,
   so other machines cannot reach the engines, and the engines have no route

@@ -9,9 +9,9 @@ the fixtures of piway's end-to-end tests (#113).
 | --- | -------- | ----------------- |
 | [loadlab](loadlab) | Go | CPU, memory and disk on demand; limits, OOM kills, volumes; a WebSocket stream |
 | [thumbnailer](thumbnailer) | Python | Uploads, a background worker making thumbnails, progress over a WebSocket, expiring files |
+| [chat](chat) | Node.js | Rooms over WebSocket, Redis pub/sub and history (`run.databases`), attachments |
 
-More are on the way (#112): a Node.js chat, PHP
-notes, Ruby feeds, Java reports, Clojure events and a static docs site.
+More are on the way (#112): PHP notes, Ruby feeds, Java reports, Clojure events and a static docs site.
 
 ## Common contract
 
