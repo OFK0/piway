@@ -71,6 +71,8 @@ export default defineConfig({
           { text: 'Hardening the Pi', link: '/HARDENING' },
           { text: 'Alerts and notifications', link: '/ALERTS' },
           { text: 'Claude Code (MCP)', link: '/MCP' },
+          { text: 'Databases', link: '/DATABASES' },
+          { text: 'Backups', link: '/BACKUP' },
         ],
       },
       {

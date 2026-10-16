@@ -51,6 +51,20 @@ type Run struct {
 	CPUs        float64
 	Health      Health
 	Volumes     []Volume // in file order
+	// Databases are shared engines the app gets a database on:
+	// "postgres", "mariadb" or "redis" (docs/DATABASES.md).
+	Databases []string
+}
+
+// Engines are the database engines run.databases accepts.
+var Engines = []string{"postgres", "mariadb", "redis"}
+
+// InjectedEnv lists the variables piway sets for each engine, which
+// run.env and run.secrets cannot also set.
+var InjectedEnv = map[string][]string{
+	"postgres": {"DATABASE_URL", "POSTGRES_URL"},
+	"mariadb":  {"DATABASE_URL", "MYSQL_URL"},
+	"redis":    {"REDIS_URL", "REDIS_PREFIX"},
 }
 
 // Volume is a named, per-app volume mounted at Path. It survives deploys,
@@ -253,6 +267,7 @@ func (d *decoder) run(n *yaml.Node, p string) *Run {
 	r := &Run{MemoryBytes: defaultMemory, CPUs: 1, Health: defaultHealth}
 	var envNames map[string]*yaml.Node
 	var secrets []*yaml.Node
+	var databases *yaml.Node
 	set := d.mapping(n, p, fields{
 		"port": func(v *yaml.Node, p string) {
 			if port, ok := d.integer(v, p); ok {
@@ -318,8 +333,45 @@ func (d *decoder) run(n *yaml.Node, p string) *Run {
 		},
 		"health":  func(v *yaml.Node, p string) { d.health(v, p, &r.Health) },
 		"volumes": func(v *yaml.Node, p string) { r.Volumes = d.volumes(v, p) },
+		"databases": func(v *yaml.Node, p string) {
+			names, ok := d.strings(v, p)
+			if !ok {
+				return
+			}
+			for i, name := range names {
+				ip := fmt.Sprintf("%s[%d]", p, i)
+				switch {
+				case !slices.Contains(Engines, name):
+					d.add(v.Content[i], ip, "%q is not a database piway runs; use %s", name, strings.Join(Engines, ", "))
+				case slices.Contains(names[:i], name):
+					d.add(v.Content[i], ip, "%q is listed twice", name)
+				default:
+					r.Databases = append(r.Databases, name)
+				}
+			}
+			databases = v
+		},
 	})
 	d.require(n, p, set, "port")
+	// Variables piway sets for run.databases cannot be set another way.
+	if databases != nil {
+		injected := map[string]string{}
+		for _, e := range r.Databases {
+			for _, name := range InjectedEnv[e] {
+				injected[name] = e
+			}
+		}
+		for name, k := range envNames {
+			if e, ok := injected[name]; ok {
+				d.add(k, join(p, "env."+name), "is set by piway for the %s database; remove it", e)
+			}
+		}
+		for _, s := range secrets {
+			if e, ok := injected[s.Value]; ok {
+				d.add(s, join(p, "secrets"), "%s is set by piway for the %s database; remove it", s.Value, e)
+			}
+		}
+	}
 	// A secret must not also have a value in the repository.
 	for _, s := range secrets {
 		if k := envNames[s.Value]; k != nil {

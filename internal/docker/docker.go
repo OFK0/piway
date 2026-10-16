@@ -131,6 +131,9 @@ type Spec struct {
 	CPUs        float64
 	// Mounts are named volumes, created by CreateVolume first.
 	Mounts []Mount
+	// Network is the network the container starts on; "" is Docker's
+	// default bridge. Connect adds more.
+	Network string
 }
 
 // Mount puts the named volume Volume at Target inside the container.
@@ -154,6 +157,7 @@ type createHostConfig struct {
 	Memory        int64                    `json:"Memory,omitempty"`
 	NanoCPUs      int64                    `json:"NanoCpus,omitempty"`
 	Mounts        []mountSpec              `json:"Mounts,omitempty"`
+	NetworkMode   string                   `json:"NetworkMode,omitempty"`
 }
 
 type mountSpec struct {
@@ -171,9 +175,13 @@ type restartPolicy struct {
 	Name string `json:"Name"`
 }
 
-// Create creates (but does not start) a container named name for app.
+// Create creates (but does not start) a container named name for app. An
+// empty app makes a container that is not an app (List leaves it out).
 func (c *Client) Create(ctx context.Context, name, app string, spec Spec) (id string, err error) {
-	labels := map[string]string{LabelApp: app}
+	labels := map[string]string{}
+	if app != "" {
+		labels[LabelApp] = app
+	}
 	for k, v := range spec.Labels {
 		labels[k] = v
 	}
@@ -188,6 +196,7 @@ func (c *Client) Create(ctx context.Context, name, app string, spec Spec) (id st
 			RestartPolicy: restartPolicy{Name: "unless-stopped"},
 			Memory:        spec.MemoryBytes,
 			NanoCPUs:      int64(spec.CPUs * 1e9),
+			NetworkMode:   spec.Network,
 		},
 	}
 	for _, m := range spec.Mounts {
@@ -246,9 +255,37 @@ type Volume struct {
 
 // CreateVolume creates the named volume with labels, or returns the one
 // that exists already (Docker treats this as idempotent).
-func (c *Client) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+func (c *Client) CreateVolume(ctx context.Context, name string, labels map[string]string) (Volume, error) {
 	body := map[string]any{"Name": name, "Labels": labels}
-	return c.do(ctx, http.MethodPost, "/volumes/create", nil, body, nil)
+	var v Volume
+	err := c.do(ctx, http.MethodPost, "/volumes/create", nil, body, &v)
+	return v, err
+}
+
+// EnsureNetwork creates a bridge network unless it exists. An internal
+// network has no route out: its containers reach each other only.
+func (c *Client) EnsureNetwork(ctx context.Context, name string, internal bool, labels map[string]string) error {
+	err := c.do(ctx, http.MethodGet, "/networks/"+url.PathEscape(name), nil, nil, nil)
+	if err == nil || !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	body := map[string]any{"Name": name, "Driver": "bridge", "Internal": internal, "Labels": labels, "CheckDuplicate": true}
+	err = c.do(ctx, http.MethodPost, "/networks/create", nil, body, nil)
+	if errors.Is(err, ErrConflict) {
+		return nil // created meanwhile
+	}
+	return err
+}
+
+// Connect attaches a container to a network, so it reaches the others
+// on it by name. Connecting twice is not an error.
+func (c *Client) Connect(ctx context.Context, network, container string) error {
+	body := map[string]any{"Container": container}
+	err := c.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(network)+"/connect", nil, body, nil)
+	if err != nil && strings.Contains(err.Error(), "already exists in network") {
+		return nil
+	}
+	return err
 }
 
 // Volumes returns the volumes with label set, with their sizes. Sizes

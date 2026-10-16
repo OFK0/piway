@@ -2,7 +2,7 @@ import { ArrowsClockwiseIcon, EyeIcon, EyeSlashIcon, PencilSimpleIcon, PlusIcon,
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 
-import { fetchAppEnv, removeAppSecret, restartApp, setAppSecret, type AppEnv, type AppSecret } from '@/api'
+import { fetchAppEnv, removeAppSecret, restartApp, setAppSecret, type AppEnv, type AppSecret, type InjectedVar } from '@/api'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -150,13 +150,7 @@ export function EnvCard({ app, busy }: { app: string; busy: boolean }) {
                   />
                 ))}
                 {env.injected.map((v) => (
-                  <TableRow key={'injected:' + v.name}>
-                    <TableCell className="type-code whitespace-normal [overflow-wrap:anywhere]">{v.name}</TableCell>
-                    <TableCell className="whitespace-normal">
-                      <code className="type-code [overflow-wrap:anywhere]">{v.value}</code>
-                    </TableCell>
-                    <TableCell className="type-caption text-muted-foreground">set by piway</TableCell>
-                  </TableRow>
+                  <InjectedRow key={'injected:' + v.name} variable={v} />
                 ))}
               </TableBody>
             </Table>
@@ -164,6 +158,37 @@ export function EnvCard({ app, busy }: { app: string; busy: boolean }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// A variable piway sets: read-only, its value (a credential) masked.
+function InjectedRow({ variable: v }: { variable: InjectedVar }) {
+  const [shown, setShown] = useState(false)
+  return (
+    <TableRow>
+      <TableCell className="type-code whitespace-normal [overflow-wrap:anywhere]">{v.name}</TableCell>
+      <TableCell className="whitespace-normal">
+        {!v.set ? (
+          <span className="type-caption text-muted-foreground">on next deploy</span>
+        ) : v.value === undefined ? (
+          <span className="type-caption text-muted-foreground">set</span>
+        ) : (
+          <span className="flex items-center gap-1">
+            <code className="type-code [overflow-wrap:anywhere]">{shown ? v.value : '••••••••'}</code>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={shown ? `Hide ${v.name}` : `Show ${v.name}`}
+              aria-pressed={shown}
+              onClick={() => setShown((s) => !s)}
+            >
+              {shown ? <EyeSlashIcon /> : <EyeIcon />}
+            </Button>
+          </span>
+        )}
+      </TableCell>
+      <TableCell className="type-caption text-muted-foreground">set by piway ({v.from})</TableCell>
+    </TableRow>
   )
 }
 

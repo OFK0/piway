@@ -50,6 +50,9 @@ type Options struct {
 	// Secrets holds the values of apps' run.secrets, for Env and
 	// SetSecret; nil leaves them out.
 	Secrets *secrets.Store
+	// Databases tells Env the variables run.databases sets; nil shows
+	// their names only.
+	Databases DatabaseEnv
 	// Git reads private repositories for ResolveHead; nil reads only
 	// public ones.
 	Git *gitauth.Access

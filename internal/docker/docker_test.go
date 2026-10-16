@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +26,8 @@ type fakeDaemon struct {
 	lastCreate createBody
 	nextID     int
 	volumes    map[string]map[string]string // name -> labels
+	networks   map[string]bool              // name -> internal
+	connected  []string                     // network/container
 }
 
 type fakeContainer struct {
@@ -45,7 +48,7 @@ func startFake(t *testing.T) (*Client, *fakeDaemon) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeDaemon{containers: map[string]*fakeContainer{}, volumes: map[string]map[string]string{}}
+	f := &fakeDaemon{containers: map[string]*fakeContainer{}, volumes: map[string]map[string]string{}, networks: map[string]bool{}}
 	srv := &http.Server{Handler: f.routes()}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -145,6 +148,40 @@ func (f *fakeDaemon) routes() http.Handler {
 		}
 		delete(f.volumes, name)
 		w.WriteHeader(204)
+	})
+	mux.HandleFunc("GET "+v+"/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if _, ok := f.networks[r.PathValue("name")]; !ok {
+			writeMsg(w, 404, "network "+r.PathValue("name")+" not found")
+			return
+		}
+		w.Write([]byte(`{}`))
+	})
+	mux.HandleFunc("POST "+v+"/networks/create", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name     string
+			Internal bool
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.networks[body.Name] = body.Internal
+		f.mu.Unlock()
+		w.WriteHeader(201)
+		w.Write([]byte(`{"Id":"n1"}`))
+	})
+	mux.HandleFunc("POST "+v+"/networks/{name}/connect", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Container string }
+		json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		key := r.PathValue("name") + "/" + body.Container
+		if slices.Contains(f.connected, key) {
+			writeMsg(w, 403, "endpoint with name x already exists in network "+r.PathValue("name"))
+			return
+		}
+		f.connected = append(f.connected, key)
+		w.WriteHeader(200)
 	})
 	mux.HandleFunc("POST "+v+"/containers/{id}/start", f.transition("running"))
 	mux.HandleFunc("POST "+v+"/containers/{id}/stop", f.transition("exited"))
@@ -459,7 +496,7 @@ func TestVolumes(t *testing.T) {
 	c, f := startFake(t)
 	labels := map[string]string{LabelApp: "photos", "piway.volume": "data"}
 	for range 2 { // creating it again is fine
-		if err := c.CreateVolume(ctx, "piway-photos_data", labels); err != nil {
+		if _, err := c.CreateVolume(ctx, "piway-photos_data", labels); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -491,5 +528,32 @@ func TestVolumes(t *testing.T) {
 	}
 	if err := c.RemoveVolume(ctx, "piway-photos_data"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("removing it again: %v, want ErrNotFound", err)
+	}
+}
+
+func TestNetworks(t *testing.T) {
+	c, f := startFake(t)
+	for range 2 {
+		if err := c.EnsureNetwork(ctx, "piway-db", true, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if internal, ok := f.networks["piway-db"]; !ok || !internal {
+		t.Errorf("networks = %v", f.networks)
+	}
+	id, err := c.Create(ctx, "piway-postgres", "", Spec{Image: "postgres", Network: "piway-db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.lastCreate.HostConfig.NetworkMode != "piway-db" || f.lastCreate.Labels[LabelApp] != "" {
+		t.Errorf("create %+v", f.lastCreate)
+	}
+	if list, _ := c.List(ctx); len(list) != 0 {
+		t.Errorf("a container without an app is listed: %+v", list)
+	}
+	for range 2 {
+		if err := c.Connect(ctx, "piway-db", id); err != nil {
+			t.Errorf("connect: %v", err)
+		}
 	}
 }
