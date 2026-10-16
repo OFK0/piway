@@ -60,6 +60,7 @@ export default defineConfig({
           { text: 'Install', link: '/INSTALL' },
           { text: 'Deploy an app', link: '/DEPLOY' },
           { text: 'App manifest (piway.yaml)', link: '/MANIFEST' },
+          { text: 'Example apps', link: '/EXAMPLES' },
         ],
       },
       {
