@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+// UserAgent marks the MCP server's requests, so the API can keep secret
+// values from it even when the MCP client signed in with a browser
+// session.
+const UserAgent = "piway-mcp"
+
 // Client calls piway's HTTP API on behalf of one MCP client, with that
 // client's credentials.
 type Client struct {
@@ -64,7 +69,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	if c.Cookie != "" {
 		req.Header.Set("Cookie", c.Cookie)
 	}
-	req.Header.Set("User-Agent", "piway-mcp")
+	req.Header.Set("User-Agent", UserAgent)
 	if c.RemoteAddr != "" {
 		req.RemoteAddr = c.RemoteAddr
 	}

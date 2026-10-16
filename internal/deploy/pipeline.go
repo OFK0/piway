@@ -14,6 +14,7 @@ import (
 
 	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/manifest"
+	"github.com/ofk0/piway/internal/secrets"
 	"github.com/ofk0/piway/internal/webhook"
 )
 
@@ -46,6 +47,9 @@ type Options struct {
 	// Targets are the repository branches in apps.yaml, which DeployNow
 	// may deploy before any push. It is asked on every use, so it may change.
 	Targets webhook.TargetSource
+	// Secrets holds the values of apps' run.secrets, for Env and
+	// SetSecret; nil leaves them out.
+	Secrets *secrets.Store
 	// Git reads private repositories for ResolveHead; nil reads only
 	// public ones.
 	Git *gitauth.Access
@@ -573,6 +577,8 @@ type Container struct {
 	State   string    `json:"state"` // running, exited, restarting, ...
 	Image   string    `json:"image"`
 	Started time.Time `json:"started_at,omitzero"`
+	// SecretsDigest is secrets.Digest of the values it was started with.
+	SecretsDigest string `json:"-"`
 }
 
 // App is one deployed app as the dashboard lists it.

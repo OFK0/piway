@@ -78,6 +78,11 @@ func New(d Deps) (http.Handler, error) {
 		d.Push.Routes(api, func(h http.Handler) http.Handler { return h }) // api is protected as a whole
 	}
 	buildRoutes(api, d.Builds)
+	session := func(*http.Request) bool { return true } // no Auth: tests
+	if d.Auth != nil {
+		session = d.Auth.Session
+	}
+	envRoutes(api, d.Builds, session)
 	repoRoutes(api, d.Repos, d.RepoAccess, d.Builds, d.WebhookSecretSet)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,

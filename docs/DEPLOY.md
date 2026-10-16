@@ -261,6 +261,9 @@ directory again. It is queued and logged like a build (`"kind":
 "rollback"`). Rolling back twice returns to the newer version. Only the
 last 3 images and sites per app are kept.
 
+Secrets are not versioned: a rollback (and a restart) runs the old build
+with the secret values stored now, not the ones it was first deployed with.
+
 ### Queue
 
 One build runs at a time on the whole Pi. While it runs, new pushes queue;
@@ -271,8 +274,14 @@ than 30 minutes fails. Builds interrupted by a piway restart are marked
 
 ### Secrets
 
-Values for `run.secrets` live on the Pi, in
-`~/.config/piway/secrets/<name>.env` (next to `apps.yaml`):
+Values for `run.secrets` live on the Pi, never in the repository. Set them
+on the app's page, under **Environment**: each secret shows whether it is
+set, its value is masked until you choose to show it, and **Add secret**,
+the pencil and the bin set, change and remove values. Values must be one
+line.
+
+They are stored in `~/.config/piway/secrets/<name>.env` (next to
+`apps.yaml`), which you can also edit by hand:
 
 ```sh
 mkdir -p ~/.config/piway/secrets && chmod 700 ~/.config/piway/secrets
@@ -280,8 +289,21 @@ echo 'DATABASE_URL=postgres://…' >> ~/.config/piway/secrets/guestbook.env
 chmod 600 ~/.config/piway/secrets/guestbook.env
 ```
 
-One `NAME=value` per line; `#` starts a comment. A build fails if a
-declared secret has no value, and names which ones are missing.
+One `NAME=value` per line; `#` starts a comment. The dashboard keeps
+comments and other lines when it changes the file, and writes it
+atomically with mode 0600. A build fails if a declared secret has no value,
+and names which ones are missing. A name in the file that piway.yaml does
+not declare is shown as *not declared*; the app does not get it.
+
+A new value applies when the app next starts: deploy or **Restart**. The
+container is labelled with a digest of the values it started with, so the
+page says **Restart needed** when they changed since, and the restart
+switches to a fresh container without downtime.
+
+Secret values are only for a signed-in browser. With an API token, or
+through the MCP server, the environment shows names and whether each is
+set, never values, and secrets cannot be changed. Responses with values are
+not cached, and values are never logged.
 
 ### Limits
 

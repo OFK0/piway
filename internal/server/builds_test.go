@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/ofk0/piway/internal/deploy"
+	"github.com/ofk0/piway/internal/secrets"
 )
 
 type fakeBuilds struct {
@@ -22,6 +23,7 @@ type fakeBuilds struct {
 	live      chan []byte
 	cancelled string
 	cancelErr error
+	secrets   map[string]string
 }
 
 func (f *fakeBuilds) List() []deploy.Build { return f.builds }
@@ -248,4 +250,44 @@ func TestAppOperationsAPI(t *testing.T) {
 			t.Errorf("%s %s %s: %d %s, want %d containing %q", tt.method, tt.path, tt.body, w.Code, w.Body, tt.code, tt.contains)
 		}
 	}
+}
+
+func (f *fakeBuilds) Env(_ context.Context, app string, values bool) (deploy.AppEnv, error) {
+	if app != "guestbook" {
+		return deploy.AppEnv{}, deploy.ErrNotFound
+	}
+	env := deploy.AppEnv{App: app, ValuesShown: values, Env: []deploy.EnvVar{{Name: "LOG_LEVEL", Value: "info"}}}
+	for _, name := range []string{"API_KEY"} {
+		s := deploy.Secret{Name: name, Declared: true}
+		if v, ok := f.secrets[name]; ok {
+			s.Set = true
+			if values {
+				s.Value = &v
+			}
+		}
+		env.Secrets = append(env.Secrets, s)
+	}
+	return env, nil
+}
+
+func (f *fakeBuilds) SetSecret(app, name, value string) error {
+	if app != "guestbook" {
+		return deploy.ErrNotFound
+	}
+	if strings.Contains(value, "\n") {
+		return secrets.ErrInvalid
+	}
+	if f.secrets == nil {
+		f.secrets = map[string]string{}
+	}
+	f.secrets[name] = value
+	return nil
+}
+
+func (f *fakeBuilds) RemoveSecret(app, name string) error {
+	if app != "guestbook" {
+		return deploy.ErrNotFound
+	}
+	delete(f.secrets, name)
+	return nil
 }

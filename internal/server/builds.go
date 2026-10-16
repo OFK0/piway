@@ -27,6 +27,9 @@ type Builds interface {
 	DeployNow(ctx context.Context, r deploy.DeployRequest, pusher string) (deploy.Build, error)
 	Targets() []deploy.Target
 	Logs(ctx context.Context, app string, lines int) (string, error)
+	Env(ctx context.Context, app string, values bool) (deploy.AppEnv, error)
+	SetSecret(app, name, value string) error
+	RemoveSecret(app, name string) error
 }
 
 func buildRoutes(mux *http.ServeMux, b Builds) {
