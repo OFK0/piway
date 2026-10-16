@@ -3,7 +3,7 @@ FROM clojure:temurin-21-tools-deps AS build
 WORKDIR /src
 COPY deps.edn build.clj ./
 # Fetch the dependencies in their own cached layer.
-RUN clojure -P && clojure -T:build help/doc >/dev/null 2>&1 || true
+RUN clojure -P && clojure -P -T:build
 COPY src src
 COPY resources resources
 RUN clojure -T:build uber
