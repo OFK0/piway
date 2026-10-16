@@ -201,6 +201,56 @@ instead of offering the dashboard's address.
 repository's webhooks and fails for one whose Payload URL is not that
 address, which says what to change it to.
 
+## GitLab next to GitHub
+
+piway deploys from gitlab.com and from a self-hosted GitLab the same way.
+The differences:
+
+```sh
+piway repo add -gitlab mygroup/app                  # gitlab.com
+piway repo add -gitlab mygroup/sub/app -private     # nested group, deploy key
+piway repo add -gitlab -host git.example.org team/app
+```
+
+In the dashboard, **Add repository** has a **Provider** choice and, for
+GitLab, a server field. In `apps.yaml` an entry carries `provider: gitlab`
+and, for a server other than gitlab.com, `host:`:
+
+```yaml
+deploy:
+  - repo: mygroup/sub/app
+    branch: main
+    provider: gitlab
+  - repo: team/app
+    branch: main
+    provider: gitlab
+    host: git.example.org
+    auth: deploy-key
+```
+
+- **Webhook.** On the project: **Settings › Webhooks**. URL: the address
+  piway shows (`…/api/v1/webhooks/gitlab`). **Secret token**: the secret
+  from step 2, the same one GitHub uses. Trigger: **Push events**. GitLab
+  sends the secret as a token (`X-Gitlab-Token`), which piway compares in
+  constant time. Publish the path with Tailscale Funnel as for GitHub, and
+  `webhook_url` for GitHub (`…/api/v1/webhooks/github`) also gives GitLab's
+  address, next to it.
+- **Private projects** use a deploy key only (no tokens): **Settings ›
+  Repository › Deploy keys**, with write permission off. piway trusts
+  gitlab.com's published SSH host keys, which are built in. For a
+  self-hosted server, add its host key to `keys/known_hosts_extra` next to
+  `apps.yaml`, in `known_hosts` format (`ssh-keyscan git.example.org`), after
+  checking the fingerprint with the server's administrator.
+- **Names.** A project path may have groups (`group/sub/app`). A name is
+  unique across providers: the same name on GitHub and on GitLab cannot both
+  be listed, because the app, its deploy key and its history are named after
+  it.
+- **Redeliveries.** GitLab's delivery ID (`X-Gitlab-Event-UUID`) is
+  remembered like GitHub's, so a retried delivery does not deploy twice.
+- `piway doctor` checks that piway knows an address GitLab can reach and that
+  it can read each project. It does not read a project's webhooks, which
+  GitLab only gives to a token.
+
 ## What piway checks
 
 | Check | Result |

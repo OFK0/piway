@@ -61,7 +61,7 @@ func (s ExecSteps) Fetch(ctx context.Context, b Build, dir string, out io.Writer
 	if err := s.command(ctx, out, dir, "git", "init", "--quiet"); err != nil {
 		return err
 	}
-	src := gitauth.Source{Repo: b.Repo, Auth: b.Auth, URL: b.CloneURL}
+	src := gitauth.Source{Repo: b.Repo, Auth: b.Auth, Provider: b.Provider, Host: b.Host, URL: b.CloneURL}
 	err := s.Git.Run(ctx, src, dir, out, func(url string) []string {
 		return []string{"fetch", "--quiet", "--depth", "1", url, b.Commit}
 	})

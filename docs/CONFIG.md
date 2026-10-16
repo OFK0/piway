@@ -35,7 +35,7 @@ The output is itself a valid config file.
 | `retention_raw` | `PIWAY_RETENTION_RAW` | `-retention-raw` | `24h` | How long every sample is kept. Durations also accept days (`7d`); at least `1h`. |
 | `retention_1m` | `PIWAY_RETENTION_1M` | `-retention-1m` | `7d` | How long per-minute rollups are kept. |
 | `retention_1h` | `PIWAY_RETENTION_1H` | `-retention-1h` | `365d` | How long per-hour rollups are kept. |
-| `webhook_secret` | `PIWAY_WEBHOOK_SECRET` | `-webhook-secret` | empty | Secret shared with GitHub for webhook signatures, at least 16 characters. Empty disables webhooks. Never shown by `-print-config`. See [DEPLOY.md](DEPLOY.md). |
+| `webhook_secret` | `PIWAY_WEBHOOK_SECRET` | `-webhook-secret` | empty | Secret shared with GitHub (webhook signatures) and GitLab (secret token), at least 16 characters. Empty disables webhooks. Never shown by `-print-config`. See [DEPLOY.md](DEPLOY.md). |
 | `webhook_url` | `PIWAY_WEBHOOK_URL` | `-webhook-url` | found from Tailscale Funnel | The address GitHub reaches piway's webhook endpoint at, shown when you add a repository. Set it when piway is published another way (a Cloudflare Tunnel, a reverse proxy). See [DEPLOY.md](DEPLOY.md). |
 | `apps_file` | `PIWAY_APPS_FILE` | `-apps-file` | `~/.config/piway/apps.yaml` | Repositories and branches that deploy on push. |
 | `proxy_domain` | `PIWAY_PROXY_DOMAIN` | `-proxy-domain` | empty | Publish each app at `<name>.<domain>` through Caddy, such as `local`. A `.local` domain is also published on the LAN over mDNS. Empty disables it. See [PROXY.md](PROXY.md). |

@@ -218,12 +218,12 @@ func TestClassify(t *testing.T) {
 		{Public, "fatal: something new\n", exit128, Other},
 	} {
 		var e *Error
-		if err := classify("o/app", tc.auth, tc.err, tc.stderr); !errors.As(err, &e) || e.Kind != tc.want {
+		if err := classify(Source{Repo: "o/app", Auth: tc.auth}, tc.err, tc.stderr); !errors.As(err, &e) || e.Kind != tc.want {
 			t.Errorf("%q: %v, want %s", tc.stderr, err, tc.want)
 		}
 	}
 
-	e := classify("o/app", DeployKey, exit128, "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n").(*Error)
+	e := classify(Source{Repo: "o/app", Auth: DeployKey}, exit128, "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n").(*Error)
 	if e.Detail != "git@github.com: Permission denied (publickey)." {
 		t.Errorf("detail %q", e.Detail)
 	}
@@ -426,5 +426,136 @@ func TestToken(t *testing.T) {
 		if strings.Contains(s, "SECRET123") || strings.Contains(s, "WRONG456") {
 			t.Errorf("token leaked: %q", s)
 		}
+	}
+}
+
+// The pinned GitLab keys are the ones GitLab publishes.
+func TestGitLabHostKeysArePinned(t *testing.T) {
+	want := map[string]string{
+		"ssh-ed25519":         "SHA256:eUXGGm1YGsMAS7vkcx6JOJdOGHPem5gQp4taiCfCLB8",
+		"ecdsa-sha2-nistp256": "SHA256:HbW3g8zUjNSksFbqTiUWPWg2Bq1x8xdGUrliXFzSnUw",
+		"ssh-rsa":             "SHA256:ROQFvPThGrW4RuWLoL9tq9I9zJ42fK4XywyRtbOz/EQ",
+	}
+	if len(gitlabHostKeys) != len(want) {
+		t.Fatalf("%d keys, want %d", len(gitlabHostKeys), len(want))
+	}
+	for _, k := range gitlabHostKeys {
+		pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(k))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ssh.FingerprintSHA256(pub); got != want[pub.Type()] {
+			t.Errorf("%s key is %s, GitLab publishes %s", pub.Type(), got, want[pub.Type()])
+		}
+	}
+}
+
+func TestValidGitLab(t *testing.T) {
+	for repo, ok := range map[string]bool{
+		"group/project": true, "group/sub/project": true, "g.r_p/a-b/c.d": true, "a/b/c/d/e": true,
+		"project": false, "group/": false, "/project": false, "group//project": false,
+		"group/../etc": false, "group/./x": false, "group/project.git": false, "gr oup/p": false, "group/p?x": false,
+	} {
+		if got := ValidRepo(GitLab, repo); got != ok {
+			t.Errorf("ValidRepo(gitlab, %q) = %v", repo, got)
+		}
+	}
+	if !ValidRepo(GitHub, "o/app") || ValidRepo(GitHub, "g/sub/project") {
+		t.Error("GitHub names are owner/name only")
+	}
+	for h, ok := range map[string]bool{"gitlab.com": true, "git.example.com": true, "10.0.0.5": true, "host": true,
+		"": false, "https://git.example.com": false, "git.example.com:2222": false, "git.example.com/x": false, "-bad": false} {
+		if ValidHost(h) != ok {
+			t.Errorf("ValidHost(%q) = %v", h, !ok)
+		}
+	}
+}
+
+func TestGitLabRemotes(t *testing.T) {
+	a := New(t.TempDir())
+	var e *Error
+
+	// Public: HTTPS on gitlab.com, or on the host, or the clone URL a push named.
+	for src, want := range map[Source]string{
+		{Repo: "grp/sub/app", Provider: GitLab}:                                "https://gitlab.com/grp/sub/app.git",
+		{Repo: "grp/app", Provider: GitLab, Host: "Git.Example.com"}:           "https://git.example.com/grp/app.git",
+		{Repo: "grp/app", Provider: GitLab, URL: "https://x.test/grp/app.git"}: "https://x.test/grp/app.git",
+	} {
+		rs, err := a.remotes(src)
+		if err != nil || len(rs) != 1 || rs[0].url != want {
+			t.Errorf("%+v: %+v %v, want %s", src, rs, err, want)
+		}
+	}
+
+	// A token is for GitHub.
+	if _, err := a.remotes(Source{Repo: "grp/app", Provider: GitLab, Auth: Token}); err == nil {
+		t.Error("a token for GitLab was accepted")
+	}
+	if _, err := a.remotes(Source{Repo: "grp/app", Provider: "bitbucket"}); err == nil {
+		t.Error("an unknown provider was accepted")
+	}
+	if _, err := a.remotes(Source{Repo: "grp/app", Provider: GitLab, Auth: DeployKey, Host: "https://evil"}); err == nil {
+		t.Error("a host with a scheme was accepted")
+	}
+
+	// A deploy key: no key yet, then SSH to gitlab.com with only the pinned keys.
+	src := Source{Repo: "grp/sub/app", Provider: GitLab, Auth: DeployKey}
+	if _, err := a.remotes(src); !errors.As(err, &e) || e.Kind != NoKey {
+		t.Fatalf("without a key: %v", err)
+	}
+	if _, err := a.GenerateKey("grp/sub/app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(a.Dir, "grp%2fsub%2fapp")); err != nil {
+		t.Errorf("a nested project's key file: %v", err)
+	}
+	rs, err := a.remotes(src)
+	if err != nil || len(rs) != 1 || rs[0].url != "ssh://git@gitlab.com/grp/sub/app.git" {
+		t.Fatalf("remotes %+v %v; want one ssh remote, no second port", rs, err)
+	}
+	known, _ := os.ReadFile(filepath.Join(a.Dir, "known_hosts"))
+	if !strings.Contains(string(known), "gitlab.com ssh-ed25519 ") || !strings.Contains(string(known), "github.com ssh-ed25519 ") {
+		t.Errorf("known_hosts:\n%s", known)
+	}
+
+	// A self-hosted server needs its host key in the extra file, and says so.
+	src = Source{Repo: "grp/app", Provider: GitLab, Auth: DeployKey, Host: "git.example.com"}
+	a.GenerateKey("grp/app")
+	if _, err := a.remotes(src); !errors.As(err, &e) || e.Kind != UnknownHost ||
+		!strings.Contains(e.Message(), "ssh-keyscan -t ed25519 git.example.com >> "+a.extraHostsFile()) {
+		t.Fatalf("an unknown host: %v", err)
+	}
+	pub, _, _, _, _ := ssh.ParseAuthorizedKey([]byte(hostKeys[0]))
+	os.WriteFile(a.extraHostsFile(), []byte("# added by hand\nnot a key line\ngit.example.com "+string(ssh.MarshalAuthorizedKey(pub))), 0o600)
+	rs, err = a.remotes(src)
+	if err != nil || rs[0].url != "ssh://git@git.example.com/grp/app.git" {
+		t.Fatalf("with its key: %+v %v", rs, err)
+	}
+	known, _ = os.ReadFile(filepath.Join(a.Dir, "known_hosts"))
+	if !strings.Contains(string(known), "git.example.com ssh-ed25519 ") || strings.Contains(string(known), "not a key line") {
+		t.Errorf("known_hosts should hold the host's key and no junk:\n%s", known)
+	}
+}
+
+func TestGitLabMessages(t *testing.T) {
+	e := &Error{Kind: KeyRejected, Repo: "grp/sub/app", Provider: GitLab, Host: "git.example.com"}
+	if m := e.Message(); !strings.Contains(m, "GitLab does not know this deploy key") || !strings.Contains(m, "https://git.example.com/grp/sub/app/-/settings/repository") || strings.Contains(m, "GitHub") {
+		t.Errorf("message %q", m)
+	}
+	if m := (&Error{Kind: NoKey, Repo: "grp/app", Provider: GitLab, Host: "git.example.com"}).Message(); !strings.Contains(m, "piway repo add grp/app -private -gitlab -host git.example.com") {
+		t.Errorf("message %q", m)
+	}
+	if got := DeployKeyURLFor(GitLab, "", "grp/app"); got != "https://gitlab.com/grp/app/-/settings/repository" {
+		t.Errorf("url %q", got)
+	}
+	if got := DeployKeyURL("o/app"); got != "https://github.com/o/app/settings/keys/new" {
+		t.Errorf("GitHub's page moved: %q", got)
+	}
+	// What git says is classified the same way for GitLab.
+	err := classify(Source{Repo: "grp/app", Provider: GitLab, Auth: DeployKey}, exec.Command("sh", "-c", "exit 128").Run(),
+		"git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n")
+	var ge *Error
+	if !errors.As(err, &ge) || ge.Kind != KeyRejected || ge.Provider != GitLab || !strings.Contains(ge.Error(), "GitLab does not know") {
+		t.Errorf("classified as %v", err)
 	}
 }

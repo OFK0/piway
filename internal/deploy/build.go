@@ -44,8 +44,10 @@ type Build struct {
 	Path string `json:"path,omitempty"`
 	// Auth is how to read the repository (apps.yaml), looked up when the
 	// build fetches, so a change to it applies to builds already queued.
-	Auth  string `json:"-"`
-	State State  `json:"state"`
+	Auth string `json:"-"`
+	// Provider and Host are the repository's, from apps.yaml like Auth.
+	Provider, Host string `json:"-"`
+	State          State  `json:"state"`
 	// Kind is "rollback" for a rollback to RollbackOf's image; empty for a
 	// build from a push.
 	Kind       string `json:"kind,omitempty"`

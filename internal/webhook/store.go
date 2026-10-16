@@ -210,6 +210,12 @@ func targetNode(t Target) *yaml.Node {
 	if t.Path != "" {
 		n.Content = append(n.Content, str("path"), str(t.Path))
 	}
+	if t.Provider != "" {
+		n.Content = append(n.Content, str("provider"), str(t.Provider))
+	}
+	if t.Host != "" {
+		n.Content = append(n.Content, str("host"), str(t.Host))
+	}
 	if t.Auth != "" {
 		n.Content = append(n.Content, str("auth"), str(t.Auth))
 	}

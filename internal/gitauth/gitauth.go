@@ -64,6 +64,19 @@ var hostKeys = []string{
 	"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
 }
 
+// gitlabHostKeys are gitlab.com's SSH host keys. They were taken with
+// ssh-keyscan, and checked against the fingerprints GitLab publishes
+// (https://docs.gitlab.com/user/gitlab_com/#ssh-known_hosts-entries):
+//
+//	ED25519 SHA256:eUXGGm1YGsMAS7vkcx6JOJdOGHPem5gQp4taiCfCLB8
+//	ECDSA   SHA256:HbW3g8zUjNSksFbqTiUWPWg2Bq1x8xdGUrliXFzSnUw
+//	RSA     SHA256:ROQFvPThGrW4RuWLoL9tq9I9zJ42fK4XywyRtbOz/EQ
+var gitlabHostKeys = []string{
+	"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsj2bNKTBSpIYDEGk9KxsGh3mySTRgMtXL583qmBpzeQ+jqCMRgBqB98u3z++J1sKlXHWfM9dyhSevkMwSbhoR8XIq/U0tCNyokEi/ueaBMCvbcTHhO7FcwzY92WK4Yt0aGROY5qX2UKSeOvuP4D6TPqKF1onrSzH9bx9XUf2lEdWT/ia1NEKjunUqu1xOB/StKDHMoX4/OKyIzuS0q/T1zOATthvasJFoPrAjkohTyaDUz2LN5JoH839hViyEG82yB+MjcFV5MU3N1l1QL3cVUCh93xSaua1N85qivl+siMkPGbO5xR/En4iEY6K2XPASUEMaieWVNTRCtJ4S8H+9",
+	"ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFSMqzJeV9rUzU4kWitGjeR4PWSa29SPqJ1fVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=",
+	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf",
+}
+
 // repoName is GitHub's owner/name. Owners have no '_' or '.', so
 // owner_name is an unambiguous file name.
 var repoName = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
@@ -108,12 +121,85 @@ func or(s, def string) string {
 
 // Source is a repository to read and how.
 type Source struct {
-	Repo string // owner/name
+	Repo string // owner/name; for GitLab the project path, such as group/sub/name
 	Auth string // Public, DeployKey or Token
+	// Provider is GitHub (the default, empty) or GitLab, and Host is
+	// the GitLab server, gitlab.com when empty.
+	Provider, Host string
 	// URL is the clone URL a push named, used for a public repository;
-	// empty means https://github.com/<repo>.git.
+	// empty means the repository's HTTPS address on its provider.
 	URL string
 }
+
+// Providers.
+const (
+	GitHub = ""       // the default; "github" means the same
+	GitLab = "gitlab" // gitlab.com, or a self-hosted server named by Host
+)
+
+// DefaultGitLabHost is where a GitLab repository lives without a host.
+const DefaultGitLabHost = "gitlab.com"
+
+// IsGitLab reports whether provider is GitLab.
+func IsGitLab(provider string) bool { return strings.EqualFold(provider, GitLab) }
+
+// ValidProvider reports whether provider is one piway knows.
+func ValidProvider(provider string) bool {
+	return provider == "" || strings.EqualFold(provider, "github") || IsGitLab(provider)
+}
+
+// hostOf is the GitLab server of src.
+func hostOf(src Source) string {
+	if src.Host == "" {
+		return DefaultGitLabHost
+	}
+	return strings.ToLower(src.Host)
+}
+
+// ValidHost reports whether h can be the host of a self-hosted GitLab: a
+// DNS name or an address, with no scheme, port or path.
+func ValidHost(h string) bool { return gitlabHost.MatchString(h) }
+
+var gitlabHost = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+
+// RepoURL is the HTTPS address of a repository on its provider.
+func RepoURL(provider, host, repo string) string {
+	if IsGitLab(provider) {
+		return "https://" + hostOf(Source{Host: host}) + "/" + repo + ".git"
+	}
+	return "https://github.com/" + repo + ".git"
+}
+
+// ValidRepo reports whether repo can be a repository of provider: GitHub's
+// owner/name, or a GitLab project path of two or more names.
+func ValidRepo(provider, repo string) bool {
+	if !IsGitLab(provider) {
+		return repoName.MatchString(repo)
+	}
+	return gitlabPath(repo)
+}
+
+// gitlabPath matches group/project and group/subgroup/project: names of
+// letters, digits, '.', '_' and '-', but never "." or "..", so a path cannot
+// leave the directory it is used in.
+func gitlabPath(repo string) bool {
+	parts := strings.Split(repo, "/")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" || p == "." || p == ".." || !gitlabName.MatchString(p) || strings.HasSuffix(p, ".git") {
+			return false
+		}
+	}
+	return true
+}
+
+var gitlabName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validAny accepts a repository of either provider, for the key
+// functions, which are told only the name.
+func validAny(repo string) bool { return repoName.MatchString(repo) || gitlabPath(repo) }
 
 // remote is one way to reach a source: a URL and the environment git
 // needs for it.
@@ -133,18 +219,32 @@ func (a *Access) remotes(src Source) ([]remote, error) {
 		// credential is used, so what works here works in the service.
 		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=",
 	}
-	if src.Auth != Public && !repoName.MatchString(src.Repo) {
-		return nil, fmt.Errorf("gitauth: %q is not owner/name", src.Repo)
+	if src.Auth != Public && !ValidRepo(src.Provider, src.Repo) {
+		return nil, fmt.Errorf("gitauth: %q is not a repository name", src.Repo)
+	}
+	if !ValidProvider(src.Provider) {
+		return nil, fmt.Errorf("gitauth: unknown provider %q", src.Provider)
+	}
+	gl := IsGitLab(src.Provider)
+	if gl && !ValidHost(hostOf(src)) {
+		return nil, fmt.Errorf("gitauth: %q is not a GitLab host name", src.Host)
 	}
 	switch src.Auth {
 	case Public:
 		url := src.URL
 		if url == "" {
-			url = a.httpsBase() + src.Repo + ".git"
+			if gl {
+				url = RepoURL(src.Provider, src.Host, src.Repo)
+			} else {
+				url = a.httpsBase() + src.Repo + ".git"
+			}
 		}
 		return []remote{{url: url, env: base}}, nil
 
 	case Token:
+		if gl {
+			return nil, fmt.Errorf("gitauth: %s repositories are read with a deploy key, not a token", "GitLab")
+		}
 		file := a.tokenFile()
 		if _, err := os.Stat(file); err != nil {
 			return nil, &Error{Kind: NoToken, Repo: src.Repo}
@@ -157,11 +257,17 @@ func (a *Access) remotes(src Source) ([]remote, error) {
 		if _, err := os.Stat(key); err != nil {
 			return nil, &Error{Kind: NoKey, Repo: src.Repo}
 		}
+		if gl && !a.knowsHost(hostOf(src)) {
+			return nil, &Error{Kind: UnknownHost, Repo: src.Repo, Provider: src.Provider, Host: hostOf(src), Detail: a.extraHostsFile()}
+		}
 		known, err := a.knownHosts()
 		if err != nil {
 			return nil, err
 		}
 		env := append(base, "GIT_SSH_COMMAND="+sshCommand(key, known), "GIT_SSH_VARIANT=ssh")
+		if gl { // GitLab's SSH service is on port 22; there is no second way in
+			return []remote{{url: "ssh://git@" + hostOf(src) + "/" + src.Repo + ".git", env: env}}, nil
+		}
 		on22 := remote{url: a.ssh22Base() + src.Repo + ".git", env: env}
 		on443 := remote{url: a.ssh443Base() + src.Repo + ".git", env: env,
 			note: "github.com:22 is unreachable; trying ssh.github.com:443"}
@@ -232,7 +338,7 @@ func (a *Access) run(ctx context.Context, src Source, dir string, out io.Writer,
 			return nil, ctx.Err()
 		}
 		if err != nil {
-			last = classify(src.Repo, src.Auth, err, stderr.String())
+			last = classify(src, err, stderr.String())
 		}
 		var e *Error
 		network := errors.As(last, &e) && e.Kind == Network
@@ -279,7 +385,7 @@ func (a *Access) Test(ctx context.Context, src Source) error {
 		return []string{"ls-remote", "--heads", url}
 	})
 	if errors.Is(err, context.DeadlineExceeded) {
-		return &Error{Kind: Network, Repo: src.Repo, Detail: "no answer from GitHub in time"}
+		return &Error{Kind: Network, Repo: src.Repo, Provider: src.Provider, Host: src.Host, Detail: "no answer from " + providerName(src.Provider) + " in time"}
 	}
 	return err
 }

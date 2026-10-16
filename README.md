@@ -34,7 +34,7 @@
 | | |
 | --- | --- |
 | **Live dashboard** | CPU per core, memory, temperature and throttling, disks and network, every second over a WebSocket, with history kept gently on the SD card. [Storage](docs/STORAGE.md) |
-| **Deploys** | Push to GitHub, or deploy from the API or Claude: piway builds an arm64 image on the Pi, health-checks it and switches traffic with no downtime. Rollback, restart and static sites included. [Deploying](docs/DEPLOY.md) |
+| **Deploys** | Push to GitHub or GitLab, or deploy from the API or Claude: piway builds an arm64 image on the Pi, health-checks it and switches traffic with no downtime. Rollback, restart and static sites included. [Deploying](docs/DEPLOY.md) |
 | **Your own subdomains** | Each app at `https://<name>.local:8443` on your network (or on 443 after one setting), through Caddy, with names published over mDNS. [Publishing apps](docs/PROXY.md) |
 | **Alerts on your phone** | Rules for heat, throttling, a weak power supply, full disks and failed deploys, sent as Web Push notifications with no third-party account. [Alerts](docs/ALERTS.md) |
 | **Claude Code built in** | An MCP server: check status, list apps, deploy, restart, roll back and read logs, with confirmation before anything changes. [MCP](docs/MCP.md) |

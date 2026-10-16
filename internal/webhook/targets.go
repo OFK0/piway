@@ -55,8 +55,18 @@ func LoadTargets(path string) ([]Target, error) {
 // checkTarget validates t against the targets listed before it.
 func checkTarget(t Target, before []Target) error {
 	switch {
-	case !repoName.MatchString(t.Repo):
+	case !gitauth.ValidProvider(t.Provider):
+		return fmt.Errorf("%w: provider %q is not github or gitlab", ErrInvalid, t.Provider)
+	case t.Host != "" && !t.IsGitLab():
+		return fmt.Errorf("%w: host is for GitLab; set provider: gitlab", ErrInvalid)
+	case t.Host != "" && !gitauth.ValidHost(t.Host):
+		return fmt.Errorf("%w: host %q must be a server name such as git.example.com, without https:// or a port", ErrInvalid, t.Host)
+	case !t.IsGitLab() && !repoName.MatchString(t.Repo):
 		return fmt.Errorf("%w: repo %q is not owner/name", ErrInvalid, t.Repo)
+	case t.IsGitLab() && !gitauth.ValidRepo(gitauth.GitLab, t.Repo):
+		return fmt.Errorf("%w: repo %q is not a GitLab project path such as group/name or group/subgroup/name", ErrInvalid, t.Repo)
+	case t.IsGitLab() && t.Auth == gitauth.Token:
+		return fmt.Errorf("%w: GitLab repositories are read with a deploy key, not a token", ErrInvalid)
 	case t.Branch == "":
 		return fmt.Errorf("%w: branch is required", ErrInvalid)
 	case !gitauth.Valid(t.Auth):
@@ -67,6 +77,10 @@ func checkTarget(t Target, before []Target) error {
 	for _, b := range before {
 		if !strings.EqualFold(b.Repo, t.Repo) {
 			continue
+		}
+		if b.IsGitLab() != t.IsGitLab() || (t.IsGitLab() && !strings.EqualFold(orDefault(b.Host, gitauth.DefaultGitLabHost), orDefault(t.Host, gitauth.DefaultGitLabHost))) {
+			return fmt.Errorf("%w: %s is listed on %s, not on %s; a repository name belongs to one provider (remove it and add it again to change)",
+				ErrInvalid, t.Repo, where(b), where(t))
 		}
 		if b.Auth != t.Auth {
 			return fmt.Errorf("%w: %s is listed as %s, not %s; every branch of a repository uses the same auth (remove it and add it again to change)",
@@ -89,6 +103,25 @@ func ValidPath(p string) bool {
 	}
 	return pathChars.MatchString(p) && path.Clean(p) == p && p != "." &&
 		!strings.HasPrefix(p, "/") && p != ".." && !strings.HasPrefix(p, "../")
+}
+
+// where names the provider (and server) of a target in a message.
+func where(t Target) string {
+	if !t.IsGitLab() {
+		return "GitHub"
+	}
+	return "GitLab (" + orDefault(t.Host, gitauth.DefaultGitLabHost) + ")"
+}
+
+// TargetOf returns the target that lists repo, for its provider, host and
+// auth, which are the same for all its branches.
+func TargetOf(targets []Target, repo string) (Target, bool) {
+	for _, t := range targets {
+		if strings.EqualFold(t.Repo, repo) {
+			return t, true
+		}
+	}
+	return Target{}, false
 }
 
 func authName(auth string) string {

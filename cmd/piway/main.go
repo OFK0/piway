@@ -238,9 +238,13 @@ func run(cfg config.Config) error {
 			log.Error("save API tokens", "err", err)
 		}
 	}()
-	finder := &publicurl.Finder{Configured: cfg.WebhookURL, Addr: cfg.Addr, Path: "/api/v1/webhooks/github"}
+	finders := map[string]*publicurl.Finder{
+		gitauth.GitHub: {Configured: cfg.WebhookURL, Addr: cfg.Addr, Path: "/api/v1/webhooks/github"},
+		gitauth.GitLab: {Configured: gitlabWebhookURL(cfg.WebhookURL), Addr: cfg.Addr, Path: "/api/v1/webhooks/gitlab"},
+	}
+	webhookURL := func(ctx context.Context, provider string) (string, string) { return finders[provider].URL(ctx) }
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, RepoAccess: access, Databases: dbStatus, WebhookSecretSet: cfg.WebhookSecret != "", WebhookURL: finder.URL, UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, RepoAccess: access, Databases: dbStatus, WebhookSecretSet: cfg.WebhookSecret != "", WebhookURL: webhookURL, GitLabWebhooks: hooks.GitLab(), UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -430,16 +434,27 @@ func openHistory(cfg config.Config, log *slog.Logger) (*history.History, error) 
 	return h, nil
 }
 
-// openWebhooks builds the GitHub webhook handler from webhook_secret and
+// gitlabWebhookURL is GitLab's address given GitHub's: the same server,
+// the endpoint next to it. Empty when the configured address is not one
+// of piway's own paths.
+func gitlabWebhookURL(github string) string {
+	if base, ok := strings.CutSuffix(github, "/api/v1/webhooks/github"); ok {
+		return base + "/api/v1/webhooks/gitlab"
+	}
+	return ""
+}
+
+// openWebhooks builds the webhook handler (GitHub's, and GitLab's through
+// its GitLab method) from webhook_secret and
 // the deploy targets in repos.
-func openWebhooks(cfg config.Config, repos *webhook.Store, d webhook.Deployer, log *slog.Logger) http.Handler {
+func openWebhooks(cfg config.Config, repos *webhook.Store, d webhook.Deployer, log *slog.Logger) *webhook.Handler {
 	switch n := len(repos.Targets()); {
 	case cfg.WebhookSecret == "":
-		log.Info("GitHub webhooks disabled (webhook_secret is empty)")
+		log.Info("GitHub and GitLab webhooks disabled (webhook_secret is empty)")
 	case n == 0:
-		log.Warn("GitHub webhooks enabled, but no deploy targets", "apps_file", cfg.AppsFile)
+		log.Warn("webhooks enabled, but no deploy targets", "apps_file", cfg.AppsFile)
 	default:
-		log.Info("GitHub webhooks enabled", "targets", n)
+		log.Info("GitHub and GitLab webhooks enabled", "targets", n)
 	}
 	return webhook.New(cfg.WebhookSecret, repos, d, log)
 }

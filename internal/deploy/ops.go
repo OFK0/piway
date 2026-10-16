@@ -129,7 +129,9 @@ func (p *Pipeline) DeployNow(ctx context.Context, r DeployRequest, pusher string
 		if resolve == nil {
 			resolve = p.opts.Git.Head
 		}
-		src := gitauth.Source{Repo: repo, Auth: webhook.AuthOf(p.configured(), repo), URL: cloneURL}
+		t, _ := webhook.TargetOf(p.configured(), repo)
+		src := t.Source(cloneURL)
+		src.Repo = repo
 		if commit, err = resolve(ctx, src, branch); err != nil {
 			return Build{}, fmt.Errorf("%w of %s@%s: %w", ErrNoHead, repo, branch, err)
 		}
@@ -161,7 +163,7 @@ func (p *Pipeline) target(r DeployRequest) (repo, branch, path, cloneURL string,
 	}
 	for _, t := range p.configured() {
 		if strings.EqualFold(t.Repo, r.Repo) && t.Branch == r.Branch && t.Path == r.Path {
-			cloneURL := "https://github.com/" + t.Repo + ".git"
+			cloneURL := gitauth.RepoURL(t.Provider, t.Host, t.Repo)
 			for i := len(p.order) - 1; i >= 0; i-- { // a URL seen in a push wins
 				if b := p.builds[p.order[i]]; strings.EqualFold(b.Repo, t.Repo) && b.CloneURL != "" {
 					cloneURL = b.CloneURL

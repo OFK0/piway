@@ -147,12 +147,71 @@ func TestRepoAddShowsPublicAddress(t *testing.T) {
 		}
 		var out, errb bytes.Buffer
 		r := repoCLI{store: store, access: gitauth.New(keysDir(cfg)), cfg: cfg, stdin: strings.NewReader(""), stdout: &out, stderr: &errb,
-			webhookURL: func() (string, string) { return tc.url, "tailscale funnel" }}
+			webhookURL: func(string) (string, string) { return tc.url, "tailscale funnel" }}
 		if code := r.command("add", []string{"OFK0/app"}); code != 0 {
 			t.Fatalf("%s: %d %s", name, code, errb.String())
 		}
 		if !strings.Contains(out.String(), tc.want) || strings.Contains(out.String(), tc.not) {
 			t.Errorf("%s: output\n%s", name, out.String())
 		}
+	}
+}
+
+func TestRepoGitLab(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "apps.yaml")
+	cfg := config.Config{AppsFile: file, WebhookSecret: strings.Repeat("s", 20)}
+	store, err := webhook.OpenStore(file, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := gitauth.New(keysDir(cfg))
+	run := func(url string, args ...string) (int, string) {
+		var out, errb bytes.Buffer
+		r := repoCLI{store: store, access: access, cfg: cfg, stdin: strings.NewReader(""), stdout: &out, stderr: &errb,
+			webhookURL: func(provider string) (string, string) {
+				if url == "" {
+					return "", ""
+				}
+				return "https://pi.example.ts.net:10000/api/v1/webhooks/" + map[string]string{"": "github", "gitlab": "gitlab"}[provider], "tailscale funnel"
+			}}
+		code := r.command(args[0], args[1:])
+		return code, out.String() + errb.String()
+	}
+
+	// A public project on gitlab.com: the webhook is GitLab's, with a token.
+	code, out := run("on", "add", "grp/sub/app", "-gitlab")
+	if code != 0 || !strings.Contains(out, "URL https://pi.example.ts.net:10000/api/v1/webhooks/gitlab") ||
+		!strings.Contains(out, "Secret token the same as webhook_secret") || strings.Contains(out, "application/json") {
+		t.Fatalf("add -gitlab: %d\n%s", code, out)
+	}
+	// A private one on a self-hosted server: the key, and where GitLab keeps deploy keys.
+	code, out = run("on", "add", "grp/self", "-host", "Git.Example.com", "-private")
+	if code != 0 || !strings.Contains(out, "ssh-ed25519 ") || !strings.Contains(out, "https://git.example.com/grp/self/-/settings/repository") ||
+		!strings.Contains(out, "Settings > Repository > Deploy keys") {
+		t.Fatalf("add -host -private: %d\n%s", code, out)
+	}
+	if got := store.Targets(); len(got) != 2 || got[1].Provider != "gitlab" || got[1].Host != "git.example.com" || got[1].Auth != "deploy-key" || got[0].Host != "" {
+		t.Errorf("targets %+v", got)
+	}
+	if code, out = run("on", "list"); code != 0 || !strings.Contains(out, "FROM") || !strings.Contains(out, "GitLab git.example.com") || !strings.Contains(out, "GitLab  ") {
+		t.Errorf("list: %q", out)
+	}
+	// Without a known address, it says so for GitLab too.
+	if code, out = run("", "add", "grp/other", "-gitlab"); code != 0 || !strings.Contains(out, "knows no public") || !strings.Contains(out, "/api/v1/webhooks/gitlab") {
+		t.Errorf("no address: %d %q", code, out)
+	}
+	// What GitLab does not support.
+	if code, _ = run("on", "add", "grp/x", "-gitlab", "-token"); code != 2 {
+		t.Errorf("-gitlab -token: %d, want a usage error", code)
+	}
+	if code, out = run("on", "add", "grp/x", "-host", "https://evil"); code == 0 {
+		t.Errorf("a host with a scheme: %q", out)
+	}
+	// The key goes with the project's last branch.
+	if code, out = run("on", "remove", "grp/self"); code != 0 || !strings.Contains(out, "Deleted its deploy key") || access.HasKey("grp/self") {
+		t.Errorf("remove: %d %q", code, out)
+	}
+	if code, out = run("on", "remove", "grp/sub/app"); code != 0 {
+		t.Errorf("remove nested: %d %q", code, out)
 	}
 }

@@ -241,15 +241,21 @@ func TestReposWebhookURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := func(_ context.Context, provider string) (string, string) {
+		if provider == "gitlab" {
+			return "https://pi.example.ts.net:10000/api/v1/webhooks/gitlab", "tailscale funnel"
+		}
+		return "https://pi.example.ts.net:10000/api/v1/webhooks/github", "tailscale funnel"
+	}
+	none := func(context.Context, string) (string, string) { return "", "" }
 	for name, tc := range map[string]struct {
-		find      func(context.Context) (string, string)
-		url, from string
+		find         func(context.Context, string) (string, string)
+		url, glURL   string
+		from, glFrom string
 	}{
-		"found": {func(context.Context) (string, string) {
-			return "https://pi.example.ts.net:10000/api/v1/webhooks/github", "tailscale funnel"
-		}, "https://pi.example.ts.net:10000/api/v1/webhooks/github", "tailscale funnel"},
-		"none":      {func(context.Context) (string, string) { return "", "" }, "", ""},
-		"no finder": {nil, "", ""},
+		"found":     {found, "https://pi.example.ts.net:10000/api/v1/webhooks/github", "https://pi.example.ts.net:10000/api/v1/webhooks/gitlab", "tailscale funnel", "tailscale funnel"},
+		"none":      {none, "", "", "", ""},
+		"no finder": {nil, "", "", "", ""},
 	} {
 		h, err := New(Deps{Snapshots: stubSource{}, Repos: store, WebhookURL: tc.find})
 		if err != nil {
@@ -260,13 +266,81 @@ func TestReposWebhookURL(t *testing.T) {
 				URL       string `json:"url"`
 				URLSource string `json:"url_source"`
 			}
+			GitLab struct {
+				Path      string `json:"path"`
+				URL       string `json:"url"`
+				URLSource string `json:"url_source"`
+			}
 		}
 		w := call(h, "GET", "/api/v1/repos", "")
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
 		if got.Webhook.URL != tc.url || got.Webhook.URLSource != tc.from {
-			t.Errorf("%s: %+v, want %q from %q", name, got.Webhook, tc.url, tc.from)
+			t.Errorf("%s: github %+v, want %q from %q", name, got.Webhook, tc.url, tc.from)
+		}
+		if got.GitLab.Path != "/api/v1/webhooks/gitlab" || got.GitLab.URL != tc.glURL || got.GitLab.URLSource != tc.glFrom {
+			t.Errorf("%s: gitlab %+v, want %q from %q", name, got.GitLab, tc.glURL, tc.glFrom)
+		}
+	}
+}
+
+func TestReposGitLab(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "apps.yaml")
+	store, err := webhook.OpenStore(file, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := &fakeAccess{keys: map[string]string{}}
+	h, err := New(Deps{Snapshots: stubSource{}, Repos: store, RepoAccess: access})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := call(h, "POST", "/api/v1/repos", `{"repo":"Grp/Sub/App","provider":"GitLab","host":"Git.Example.com","auth":"deploy-key"}`)
+	var added repoEntry
+	json.Unmarshal(w.Body.Bytes(), &added)
+	if w.Code != http.StatusCreated || added.Provider != "gitlab" || added.Host != "git.example.com" ||
+		added.DeployKeyURL != "https://git.example.com/Grp/Sub/App/-/settings/repository" || added.PublicKey == "" {
+		t.Fatalf("add: %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(file); !strings.Contains(string(b), "provider: gitlab") || !strings.Contains(string(b), "host: git.example.com") {
+		t.Errorf("apps.yaml:\n%s", b)
+	}
+	// gitlab.com is the default host, and "github" the default provider.
+	if w := call(h, "POST", "/api/v1/repos", `{"repo":"grp/app","provider":"gitlab","host":"gitlab.com"}`); w.Code != http.StatusCreated {
+		t.Fatalf("gitlab.com: %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(file); strings.Count(string(b), "host:") != 1 {
+		t.Errorf("gitlab.com should not be written as a host:\n%s", b)
+	}
+	if w := call(h, "POST", "/api/v1/repos", `{"repo":"o/app","provider":"github"}`); w.Code != http.StatusCreated {
+		t.Errorf("provider github: %d %s", w.Code, w.Body)
+	}
+	for name, body := range map[string]string{
+		"a token":          `{"repo":"grp/x","provider":"gitlab","auth":"token"}`,
+		"another provider": `{"repo":"grp/x","provider":"bitbucket"}`,
+		"a bad host":       `{"repo":"grp/x","provider":"gitlab","host":"https://evil.test"}`,
+		"a host on GitHub": `{"repo":"o/x","host":"git.example.com"}`,
+		"a single name":    `{"repo":"app","provider":"gitlab"}`,
+		"a taken name":     `{"repo":"o/app","branch":"dev","provider":"gitlab"}`,
+	} {
+		if w := call(h, "POST", "/api/v1/repos", body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s, want 400", name, w.Code, w.Body)
+		}
+	}
+	if w := call(h, "GET", "/api/v1/repos", ""); !strings.Contains(w.Body.String(), `"provider":"gitlab"`) {
+		t.Errorf("list: %s", w.Body)
+	}
+	// Test access reads the project as a GitLab one.
+	access.testErr = nil
+	call(h, "POST", "/api/v1/repos/test", `{"repo":"grp/sub/app"}`)
+	call(h, "POST", "/api/v1/repos/test", `{"repo":"Grp/Sub/App"}`)
+	if len(access.tested) != 2 {
+		t.Fatalf("tested %+v", access.tested)
+	}
+	for _, src := range access.tested { // either spelling of the name is the same project
+		if src.Provider != "gitlab" || src.Host != "git.example.com" || src.Auth != "deploy-key" {
+			t.Errorf("tested %+v", src)
 		}
 	}
 }

@@ -346,6 +346,42 @@ func TestDoctorWebhooks(t *testing.T) {
 	}
 }
 
+func TestDoctorGitLab(t *testing.T) {
+	env := testEnv()
+	env.Repos = []webhook.Target{
+		{Repo: "OFK0/gh", Branch: "main"},
+		{Repo: "grp/sub/app", Branch: "main", Provider: "gitlab", Auth: gitauth.DeployKey},
+	}
+	var tested []gitauth.Source
+	env.TestRepo = func(_ context.Context, src gitauth.Source) error {
+		tested = append(tested, src)
+		return nil
+	}
+	// GitHub's hooks are read, GitLab's project is not asked for them.
+	var hooked []string
+	env.Hooks = func(_ context.Context, repo string) ([]string, error) {
+		hooked = append(hooked, repo)
+		return []string{"x"}, nil
+	}
+	env.WebhookURL = func(context.Context) string { return "https://pi.example.ts.net:10000/api/v1/webhooks/github" }
+	env.GitLabWebhookURL = func(context.Context) string { return "https://pi.example.ts.net:10000/api/v1/webhooks/gitlab" }
+	r := Doctor(context.Background(), healthyPi(), env)
+	wantStatus(t, r, map[string]Status{"gitlab-webhook-url": OK, "repo:grp/sub/app": OK, "webhook:ofk0/gh": Fail})
+	if len(hooked) != 1 || hooked[0] != "OFK0/gh" {
+		t.Errorf("hooks read for %v, want only the GitHub repository", hooked)
+	}
+	if len(tested) != 1 || tested[0].Provider != "gitlab" || tested[0].Repo != "grp/sub/app" {
+		t.Errorf("access tested as %+v", tested)
+	}
+
+	env.GitLabWebhookURL = func(context.Context) string { return "" }
+	wantStatus(t, Doctor(context.Background(), healthyPi(), env), map[string]Status{"gitlab-webhook-url": Warn})
+	env.Repos = env.Repos[:1] // no GitLab project: nothing to say about GitLab
+	if _, ok := Doctor(context.Background(), healthyPi(), env).Get("gitlab-webhook-url"); ok {
+		t.Error("a GitLab check without a GitLab project")
+	}
+}
+
 func TestDoctorSystem(t *testing.T) {
 	h := healthyPi()
 	h.arch = "amd64"

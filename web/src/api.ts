@@ -338,19 +338,26 @@ export interface Repo {
   /** The app this branch became, once it has been built. */
   app?: string
   auth?: RepoAuth
+  /** Absent for GitHub. */
+  provider?: 'gitlab'
+  /** For GitLab: the server, absent for gitlab.com. */
+  host?: string
   /** For a deploy key: the public key to add on GitHub, and the page to add it on. */
   public_key?: string
   deploy_key_url?: string
 }
+export interface WebhookInfo {
+  path: string
+  configured: boolean
+  /** The address the provider reaches the endpoint at; empty when piway knows none. */
+  url?: string
+  url_source?: 'config' | 'tailscale funnel' | ''
+}
 export interface ReposResponse {
   repos: Repo[]
-  webhook: {
-    path: string
-    configured: boolean
-    /** The address GitHub reaches the endpoint at; empty when piway knows none. */
-    url?: string
-    url_source?: 'config' | 'tailscale funnel' | ''
-  }
+  webhook: WebhookInfo
+  /** The same for GitLab, which sends the secret as a token. */
+  gitlab?: WebhookInfo
   /** Whether private repositories can be added, and whether a token is stored. */
   private?: { available: boolean; token_set: boolean }
 }
@@ -368,8 +375,17 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 })
-export const addRepo = (repo: string, branch: string, auth?: RepoAuth, path?: string) =>
-  repoRequest<Repo>('/api/v1/repos', jsonInit('POST', { repo, branch, ...(auth && { auth }), ...(path && { path }) }))
+export const addRepo = (repo: string, branch: string, auth?: RepoAuth, path?: string, gitlab?: { host?: string }) =>
+  repoRequest<Repo>(
+    '/api/v1/repos',
+    jsonInit('POST', {
+      repo,
+      branch,
+      ...(auth && { auth }),
+      ...(path && { path }),
+      ...(gitlab && { provider: 'gitlab', ...(gitlab.host && { host: gitlab.host }) }),
+    }),
+  )
 
 /** The answer to "Test access": kind and message say what to fix. */
 export interface AccessResult {

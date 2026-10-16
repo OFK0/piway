@@ -291,6 +291,13 @@ the checks applied. Responses are JSON `{"status": …, "reason": …}`:
 | `413` | `rejected` | Body over 5 MiB. |
 | `503` | `disabled`, `error` | No `webhook_secret` set, or the deploy could not be queued. A queue failure leaves the delivery ID eligible for redelivery. |
 
+## `POST /api/v1/webhooks/gitlab`
+
+Receives GitLab push events; setup in [DEPLOY.md](DEPLOY.md#gitlab-next-to-github).
+The `X-Gitlab-Token` header must equal `webhook_secret`. Responses are the
+same JSON and statuses as for GitHub, with `401` for a missing or wrong
+token; a delivery is identified by `X-Gitlab-Event-UUID`.
+
 ## Builds
 
 Deploys started by webhooks ([DEPLOY.md](DEPLOY.md)). All answer `503` when
@@ -371,8 +378,8 @@ when deploys are off.
 
 | Endpoint | Meaning |
 |---|---|
-| `GET /api/v1/repos` | `{"repos": [{"repo", "branch", "path", "app", "auth", "public_key", "deploy_key_url"}…], "webhook": {"path", "configured", "url", "url_source"}, "private": {"available", "token_set"}}`. `app` is set once the branch was built; `configured` says whether `webhook_secret` is set. `url` is the address GitHub reaches the webhook endpoint at, from `webhook_url` or Tailscale Funnel (`url_source` says which), and empty when piway knows none: not the address the dashboard was opened at. `auth` is `deploy-key` or `token`, absent for a public repository; a deploy key comes with its public key and the GitHub page to add it on. |
-| `POST /api/v1/repos` | Body `{"repo": "owner/name", "branch": "main", "path": "apps/web", "auth": "deploy-key"}` (branch defaults to `main`, path to the repository root, auth to public). `201` with the entry, including the new deploy key's `public_key`; `400` for a bad name or auth, or an auth that differs from the repository's other branches; `409` if already listed. |
+| `GET /api/v1/repos` | `{"repos": [{"repo", "branch", "path", "app", "auth", "provider", "host", "public_key", "deploy_key_url"}…], "webhook": {"path", "configured", "url", "url_source"}, "gitlab": {…the same for GitLab…}, "private": {"available", "token_set"}}`. `provider` is `gitlab` for a GitLab project (absent for GitHub) and `host` its server when not gitlab.com. `app` is set once the branch was built; `configured` says whether `webhook_secret` is set. `url` is the address GitHub reaches the webhook endpoint at, from `webhook_url` or Tailscale Funnel (`url_source` says which), and empty when piway knows none: not the address the dashboard was opened at. `auth` is `deploy-key` or `token`, absent for a public repository; a deploy key comes with its public key and the GitHub page to add it on. |
+| `POST /api/v1/repos` | Body `{"repo": "owner/name", "branch": "main", "path": "apps/web", "auth": "deploy-key"}`, plus `"provider": "gitlab"` and optionally `"host"` for GitLab, where `repo` may be `group/sub/name` and `auth` can only be `deploy-key` (branch defaults to `main`, path to the repository root, auth to public). `201` with the entry, including the new deploy key's `public_key`; `400` for a bad name or auth, or an auth that differs from the repository's other branches; `409` if already listed. |
 | `DELETE /api/v1/repos?repo=owner/name&branch=main&path=apps/web` | Stops deploying. Without `branch`, every branch of the repository goes; without `path`, every app of the branch (`path=` with nothing is the root's only). `404` if not listed. Running apps and their data are untouched. When the last branch goes, so does its deploy key: `{"removed": […], "key_removed": true}`. |
 | `POST /api/v1/repos/test` | Body `{"repo": "owner/name"}`: can piway read it (`git ls-remote`)? `{"ok": true}`, or `{"ok": false, "kind", "message", "detail"}` where `kind` is `no_key`, `key_rejected`, `not_found`, `no_token`, `token_rejected`, `host_key`, `network` or `other`, `message` says what to do and `detail` is git's own line. `404` if not listed. |
 | `PUT /api/v1/repos/token` | Body `{"token": "github_pat_…"}`: stores the token for `auth: token` repositories. `204`. It is never returned. |

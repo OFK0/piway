@@ -43,8 +43,10 @@ type Deps struct {
 	WebhookSecretSet bool
 	// WebhookURL answers the public address of the webhook endpoint and
 	// where it was found; nil or "" when none is known.
-	WebhookURL func(context.Context) (url, source string)
-	UI         fs.FS
+	WebhookURL func(ctx context.Context, provider string) (url, source string)
+	// GitLabWebhooks serves POST /api/v1/webhooks/gitlab; nil leaves it out.
+	GitLabWebhooks http.Handler
+	UI             fs.FS
 	// Auth guards the API; nil leaves it open (tests).
 	Auth   *auth.Auth
 	Alerts Alerts
@@ -100,6 +102,9 @@ func New(d Deps) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.Handle("POST /api/v1/webhooks/github", hooks) // signed by GitHub instead
+	if d.GitLabWebhooks != nil {
+		mux.Handle("POST /api/v1/webhooks/gitlab", d.GitLabWebhooks) // GitLab sends the secret as a token
+	}
 	if d.Auth != nil {
 		d.Auth.Routes(mux)
 	}

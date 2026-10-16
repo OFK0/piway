@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,14 +19,26 @@ import (
 // keyFile is where repo's private key lives; the public key is next to
 // it with .pub. Names are lower case, as GitHub's are case-insensitive.
 func (a *Access) keyFile(repo string) string {
-	return filepath.Join(a.Dir, strings.ToLower(strings.Replace(repo, "/", "_", 1)))
+	return filepath.Join(a.Dir, keyName(repo))
+}
+
+// keyName is the file name of a repository's key. GitHub's owner/name keeps
+// the name it always had. A GitLab project path can have several slashes,
+// and names with '_' make '_' ambiguous, so it is escaped (group%2Fsub%2Fname).
+// A repository name belongs to one provider at a time, so the two never
+// meet.
+func keyName(repo string) string {
+	if strings.Count(repo, "/") == 1 && repoName.MatchString(repo) {
+		return strings.ToLower(strings.Replace(repo, "/", "_", 1))
+	}
+	return strings.ToLower(url.QueryEscape(repo))
 }
 
 func (a *Access) tokenFile() string { return filepath.Join(a.Dir, "github-token") }
 
 // HasKey reports whether repo has a deploy key.
 func (a *Access) HasKey(repo string) bool {
-	if !repoName.MatchString(repo) {
+	if !validAny(repo) {
 		return false
 	}
 	_, err := os.Stat(a.keyFile(repo))
@@ -36,7 +49,7 @@ func (a *Access) HasKey(repo string) bool {
 // public key in authorized_keys form, to paste into GitHub. Calling it
 // again returns the same key.
 func (a *Access) GenerateKey(repo string) (string, error) {
-	if !repoName.MatchString(repo) {
+	if !validAny(repo) {
 		return "", fmt.Errorf("gitauth: %q is not owner/name", repo)
 	}
 	if pub, err := a.PublicKey(repo); err == nil {
@@ -85,7 +98,7 @@ func (a *Access) PublicKey(repo string) (string, error) {
 // RemoveKey deletes repo's deploy key. A repository without one is not
 // an error.
 func (a *Access) RemoveKey(repo string) error {
-	if !repoName.MatchString(repo) {
+	if !validAny(repo) {
 		return fmt.Errorf("gitauth: %q is not owner/name", repo)
 	}
 	key := a.keyFile(repo)
@@ -124,14 +137,61 @@ func (a *Access) RemoveToken() error {
 	return ignoreMissing(os.Remove(a.tokenFile()))
 }
 
-// knownHosts writes the pinned GitHub host keys for both ports and
-// returns the file's path.
+// extraHostsFile is where host keys of self-hosted servers are added, in
+// known_hosts format (ssh-keyscan writes it).
+func (a *Access) extraHostsFile() string { return filepath.Join(a.Dir, "known_hosts_extra") }
+
+// extraHosts returns the lines of the extra host keys file, which are
+// well-formed: a host and a key.
+func (a *Access) extraHosts() []string {
+	b, err := os.ReadFile(a.extraHostsFile())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for line := range strings.SplitSeq(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if _, _, _, _, _, err := ssh.ParseKnownHosts([]byte(line)); err == nil {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// knowsHost reports whether piway has an SSH host key for a GitLab host:
+// gitlab.com's are built in, any other server's come from the extra file.
+func (a *Access) knowsHost(host string) bool {
+	if host == DefaultGitLabHost {
+		return true
+	}
+	for _, line := range a.extraHosts() {
+		hosts, _, _ := strings.Cut(line, " ")
+		for h := range strings.SplitSeq(hosts, ",") {
+			if strings.EqualFold(strings.TrimPrefix(h, "@"), host) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// knownHosts writes the pinned host keys (GitHub's on both of its ports,
+// gitlab.com's) and the extra ones, and returns the file's path.
 func (a *Access) knownHosts() (string, error) {
 	var b bytes.Buffer
 	for _, host := range []string{"github.com", "[ssh.github.com]:443"} {
 		for _, k := range hostKeys {
 			fmt.Fprintf(&b, "%s %s\n", host, k)
 		}
+	}
+	for _, k := range gitlabHostKeys {
+		fmt.Fprintf(&b, "%s %s\n", DefaultGitLabHost, k)
+	}
+	for _, line := range a.extraHosts() {
+		fmt.Fprintln(&b, line)
 	}
 	path := filepath.Join(a.Dir, "known_hosts")
 	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, b.Bytes()) {
