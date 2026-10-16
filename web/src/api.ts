@@ -236,29 +236,51 @@ export const fetchTargets = (signal?: AbortSignal) =>
 
 // --- Repositories (docs/API.md › /api/v1/repos) ----------------------------
 
+/** How piway reads a private repository; absent for a public one. */
+export type RepoAuth = 'deploy-key' | 'token'
 export interface Repo {
   repo: string
   branch: string
   /** The app this branch became, once it has been built. */
   app?: string
+  auth?: RepoAuth
+  /** For a deploy key: the public key to add on GitHub, and the page to add it on. */
+  public_key?: string
+  deploy_key_url?: string
 }
 export interface ReposResponse {
   repos: Repo[]
   webhook: { path: string; configured: boolean }
+  /** Whether private repositories can be added, and whether a token is stored. */
+  private?: { available: boolean; token_set: boolean }
 }
 export const fetchRepos = (signal?: AbortSignal) => getJSON<ReposResponse>('/api/v1/repos', signal)
 
-async function repoRequest(path: string, init: RequestInit): Promise<void> {
+async function repoRequest<T = unknown>(path: string, init: RequestInit): Promise<T> {
   const res = await fetch(path, init)
   const body = await res.json().catch(() => null)
   if (needsSignIn(res.status)) notifySignedOut()
   if (!res.ok) throw new Error(body?.error ?? `${path}: HTTP ${res.status}`)
+  return body as T
 }
-export const addRepo = (repo: string, branch: string) =>
-  repoRequest('/api/v1/repos', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, branch }),
-  })
+const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+export const addRepo = (repo: string, branch: string, auth?: RepoAuth) =>
+  repoRequest<Repo>('/api/v1/repos', jsonInit('POST', auth ? { repo, branch, auth } : { repo, branch }))
+
+/** The answer to "Test access": kind and message say what to fix. */
+export interface AccessResult {
+  ok: boolean
+  kind?: string
+  message?: string
+  /** git's own words. */
+  detail?: string
+}
+export const testRepoAccess = (repo: string) =>
+  repoRequest<AccessResult>('/api/v1/repos/test', jsonInit('POST', { repo }))
+export const setRepoToken = (token: string) => repoRequest('/api/v1/repos/token', jsonInit('PUT', { token }))
 export const removeRepo = (repo: string, branch: string) =>
-  repoRequest(`/api/v1/repos?${new URLSearchParams({ repo, branch })}`, { method: 'DELETE' })
+  repoRequest<{ key_removed?: boolean }>(`/api/v1/repos?${new URLSearchParams({ repo, branch })}`, { method: 'DELETE' })

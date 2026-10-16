@@ -100,7 +100,12 @@ deploy:
 For an entry written by hand, make its key with `piway repo add
 OFK0/private-app -private`, which leaves the entry as it is.
 
-`piway repo test` and `piway doctor` say what is wrong when piway cannot
+In the dashboard, **Add repository** has an **Access** choice: Public,
+Deploy key or Token. After adding, it shows the deploy key with a link to
+GitHub's page for it, or takes the token, and has a **Test access** button.
+The key icon on a private repository's row shows the same again.
+
+`piway repo test`, **Test access** and `piway doctor` say what is wrong when piway cannot
 read a repository:
 
 | Message | What to do |
