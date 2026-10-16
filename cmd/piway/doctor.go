@@ -88,6 +88,8 @@ func doctorEnv() setup.Env {
 	env.TestRepo = gitauth.New(keysDir(loaded.Config)).Test
 	finder := &publicurl.Finder{Configured: loaded.Config.WebhookURL, Addr: loaded.Config.Addr, Path: "/api/v1/webhooks/github"}
 	env.WebhookURL = func(ctx context.Context) string { u, _ := finder.URL(ctx); return u }
+	glFinder := &publicurl.Finder{Configured: gitlabWebhookURL(loaded.Config.WebhookURL), Addr: loaded.Config.Addr, Path: "/api/v1/webhooks/gitlab"}
+	env.GitLabWebhookURL = func(ctx context.Context) string { u, _ := glFinder.URL(ctx); return u }
 	if _, err := exec.LookPath("gh"); err == nil {
 		env.Hooks = githubHooks
 	}

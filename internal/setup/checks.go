@@ -37,6 +37,10 @@ type Env struct {
 	// not checked.
 	WebhookURL func(ctx context.Context) string
 	Hooks      func(ctx context.Context, repo string) ([]string, error)
+	// GitLabWebhookURL is the same for GitLab's endpoint. GitLab's
+	// webhooks cannot be read without a token, so only the address is
+	// checked.
+	GitLabWebhookURL func(ctx context.Context) string
 }
 
 // Supported Raspberry Pi OS (Debian) releases.
@@ -59,6 +63,7 @@ func Doctor(ctx context.Context, h Host, env Env) *Report {
 	c.remote()
 	c.repos()
 	c.webhooks()
+	c.gitlabWebhooks()
 	return &Report{Results: c.results}
 }
 
@@ -381,7 +386,7 @@ func (c *checker) repos() {
 		}
 		seen[key] = true
 		id := "repo:" + key
-		err := c.env.TestRepo(c.ctx, gitauth.Source{Repo: t.Repo, Auth: t.Auth})
+		err := c.env.TestRepo(c.ctx, t.Source(""))
 		if err == nil {
 			c.add(id, t.Repo, OK, "readable with its "+authLabel(t.Auth), "")
 			continue
@@ -422,7 +427,7 @@ func (c *checker) webhooks() {
 	seen := map[string]bool{}
 	for _, t := range c.env.Repos {
 		key := strings.ToLower(t.Repo)
-		if seen[key] {
+		if seen[key] || t.IsGitLab() {
 			continue
 		}
 		seen[key] = true
@@ -443,6 +448,28 @@ func (c *checker) webhooks() {
 				"change its Payload URL to "+want+": https://github.com/"+t.Repo+"/settings/hooks")
 		}
 	}
+}
+
+// gitlabWebhooks checks that piway knows an address GitLab can reach, when
+// a GitLab project is listed. The project's own webhooks are not read.
+func (c *checker) gitlabWebhooks() {
+	if c.env.GitLabWebhookURL == nil || c.env.ReposErr != nil {
+		return
+	}
+	found := false
+	for _, t := range c.env.Repos {
+		found = found || t.IsGitLab()
+	}
+	if !found {
+		return
+	}
+	c.section = "GitLab webhooks"
+	if want := c.env.GitLabWebhookURL(c.ctx); want != "" {
+		c.add("gitlab-webhook-url", "Public address", OK, want+" (on each project: Settings > Webhooks, with the Secret token and the Push events trigger)", "")
+		return
+	}
+	c.add("gitlab-webhook-url", "Public address", Warn, "piway knows no address GitLab can reach, so a webhook cannot deliver",
+		"publish /api/v1/webhooks/gitlab with Tailscale Funnel (docs/REMOTE.md), or set webhook_url")
 }
 
 func authLabel(auth string) string {

@@ -26,6 +26,9 @@ const repoUsage = `usage: piway repo <command>
   add owner/name [-branch main] [-path dir] [-private | -token]
                                      deploy pushes to this repository; -path for
                                      an app in a directory of it
+  add group/sub/name -gitlab [-host git.example.com] [-private]
+                                     the same for a GitLab project (gitlab.com, or
+                                     a self-hosted server with -host)
   list                               show the repositories that deploy
   remove owner/name [-branch main] [-path dir]
                                      stop deploying it (all branches and paths
@@ -72,14 +75,51 @@ func runRepo(args []string) int {
 	return r.command(args[0], args[1:])
 }
 
-// publicURL is the address GitHub reaches the webhook at, and where it
+// publicURL is the address a provider reaches the webhook at, and where it
 // was found, or "" when piway knows none.
-func (r repoCLI) publicURL() (string, string) {
+func (r repoCLI) publicURL(provider string) (string, string) {
 	if r.webhookURL != nil {
-		return r.webhookURL()
+		return r.webhookURL(provider)
 	}
 	f := &publicurl.Finder{Configured: r.cfg.WebhookURL, Addr: r.cfg.Addr, Path: "/api/v1/webhooks/github"}
+	if provider == gitauth.GitLab {
+		f.Configured, f.Path = gitlabWebhookURL(r.cfg.WebhookURL), "/api/v1/webhooks/gitlab"
+	}
 	return f.URL(context.Background())
+}
+
+// showWebhook says how to point the repository's provider at piway.
+func (r repoCLI) showWebhook(t webhook.Target) {
+	out := r.stdout
+	if t.IsGitLab() {
+		if url, _ := r.publicURL(gitauth.GitLab); url != "" {
+			fmt.Fprintln(out, "Push events deploy it once GitLab reaches piway. On the project's")
+			fmt.Fprintln(out, "Settings > Webhooks, add a webhook with")
+			fmt.Fprintln(out, "  URL "+url)
+		} else {
+			fmt.Fprintln(out, "Push events deploy it once GitLab can reach piway, and piway knows no public")
+			fmt.Fprintln(out, "address: the one you open the dashboard at may be tailnet-only. Publish the")
+			fmt.Fprintln(out, "webhook (Tailscale Funnel, docs/REMOTE.md) so piway finds it, or set")
+			fmt.Fprintln(out, "webhook_url in the config. Then, on the project's Settings > Webhooks, add a")
+			fmt.Fprintln(out, "webhook with")
+			fmt.Fprintln(out, "  URL that address + /api/v1/webhooks/gitlab")
+		}
+		fmt.Fprintln(out, "  Secret token the same as webhook_secret, and the Push events trigger.")
+		return
+	}
+	if url, _ := r.publicURL(gitauth.GitHub); url != "" {
+		fmt.Fprintln(out, "Push events deploy it once GitHub reaches piway. On the repository's")
+		fmt.Fprintln(out, "Settings > Webhooks, point a webhook at")
+		fmt.Fprintln(out, "  "+url)
+		fmt.Fprintln(out, "with content type application/json and the same secret as webhook_secret.")
+		return
+	}
+	fmt.Fprintln(out, "Push events deploy it once GitHub can reach piway, and piway knows no public")
+	fmt.Fprintln(out, "address: the one you open the dashboard at may be tailnet-only. Publish the")
+	fmt.Fprintln(out, "webhook (Tailscale Funnel, docs/REMOTE.md) so piway finds it, or set")
+	fmt.Fprintln(out, "webhook_url in the config. Then, on the repository's Settings > Webhooks, point")
+	fmt.Fprintln(out, "a webhook at that address + /api/v1/webhooks/github, with content type")
+	fmt.Fprintln(out, "application/json and the same secret as webhook_secret.")
 }
 
 type repoCLI struct {
@@ -88,7 +128,7 @@ type repoCLI struct {
 	cfg            config.Config
 	stdin          io.Reader
 	stdout, stderr io.Writer
-	webhookURL     func() (string, string) // tests; nil asks publicurl
+	webhookURL     func(provider string) (string, string) // tests; nil asks publicurl
 }
 
 func (r repoCLI) command(cmd string, args []string) int {
@@ -98,6 +138,8 @@ func (r repoCLI) command(cmd string, args []string) int {
 	branch := fs.String("branch", "", "`branch` to deploy (add: default main; remove: default every branch)")
 	dir := fs.String("path", "", "the app's `directory` in the repository (default its root)")
 	pathSet := false
+	gitlab := fs.Bool("gitlab", false, "add: a GitLab project (owner/name is its path, such as group/subgroup/name)")
+	host := fs.String("host", "", "add: the self-hosted GitLab `server`, such as git.example.com (implies -gitlab; default gitlab.com)")
 	private := fs.Bool("private", false, "add: a private repository, read with a deploy key piway makes")
 	token := fs.Bool("token", false, "add: a private repository, read with the stored GitHub token")
 	// Flags may follow the repository: piway repo add owner/name -branch dev.
@@ -138,7 +180,7 @@ func (r repoCLI) command(cmd string, args []string) int {
 			return 0
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "REPOSITORY\tBRANCH\tPATH\tAUTH")
+		fmt.Fprintln(tw, "REPOSITORY\tBRANCH\tPATH\tFROM\tAUTH")
 		for _, t := range targets {
 			auth := t.Auth
 			if auth == "" {
@@ -148,7 +190,14 @@ func (r repoCLI) command(cmd string, args []string) int {
 			if path == "" {
 				path = "/"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Repo, t.Branch, path, auth)
+			from := "GitHub"
+			if t.IsGitLab() {
+				from = "GitLab"
+				if t.Host != "" {
+					from += " " + t.Host
+				}
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.Repo, t.Branch, path, from, auth)
 		}
 		_ = tw.Flush()
 		return 0
@@ -162,6 +211,14 @@ func (r repoCLI) command(cmd string, args []string) int {
 			fmt.Fprintln(stderr, "piway: choose -private (deploy key) or -token, not both")
 			return 2
 		}
+		provider := gitauth.GitHub
+		if *gitlab || *host != "" {
+			provider = gitauth.GitLab
+		}
+		if provider == gitauth.GitLab && *token {
+			fmt.Fprintln(stderr, "piway: GitLab repositories are read with a deploy key: use -private")
+			return 2
+		}
 		auth := gitauth.Public
 		switch {
 		case *private:
@@ -173,7 +230,11 @@ func (r repoCLI) command(cmd string, args []string) int {
 		if b == "" {
 			b = "main"
 		}
-		target := webhook.Target{Repo: repo, Branch: b, Path: *dir, Auth: auth}
+		hostName := strings.ToLower(*host)
+		if hostName == gitauth.DefaultGitLabHost {
+			hostName = ""
+		}
+		target := webhook.Target{Repo: repo, Branch: b, Path: *dir, Auth: auth, Provider: provider, Host: hostName}
 		err := r.store.Add(target)
 		exists := errors.Is(err, webhook.ErrExists)
 		if err != nil && !exists {
@@ -206,19 +267,7 @@ func (r repoCLI) command(cmd string, args []string) int {
 			}
 			fmt.Fprintf(stdout, "The token needs Contents: read on %s. Then check: piway repo test %s\n\n", repo, repo)
 		}
-		if url, _ := r.publicURL(); url != "" {
-			fmt.Fprintln(stdout, "Push events deploy it once GitHub reaches piway. On the repository's")
-			fmt.Fprintln(stdout, "Settings > Webhooks, point a webhook at")
-			fmt.Fprintln(stdout, "  "+url)
-			fmt.Fprintln(stdout, "with content type application/json and the same secret as webhook_secret.")
-		} else {
-			fmt.Fprintln(stdout, "Push events deploy it once GitHub can reach piway, and piway knows no public")
-			fmt.Fprintln(stdout, "address: the one you open the dashboard at may be tailnet-only. Publish the")
-			fmt.Fprintln(stdout, "webhook (Tailscale Funnel, docs/REMOTE.md) so piway finds it, or set")
-			fmt.Fprintln(stdout, "webhook_url in the config. Then, on the repository's Settings > Webhooks, point")
-			fmt.Fprintln(stdout, "a webhook at that address + /api/v1/webhooks/github, with content type")
-			fmt.Fprintln(stdout, "application/json and the same secret as webhook_secret.")
-		}
+		r.showWebhook(target)
 		if r.cfg.WebhookSecret == "" {
 			fmt.Fprintln(stdout, "\nwebhook_secret is not set, so piway will refuse every delivery (docs/DEPLOY.md).")
 		}
@@ -268,7 +317,10 @@ func (r repoCLI) command(cmd string, args []string) int {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if err := r.access.Test(ctx, gitauth.Source{Repo: repo, Auth: webhook.AuthOf(targets, repo)}); err != nil {
+		tg, _ := webhook.TargetOf(targets, repo)
+		src := tg.Source("")
+		src.Repo = repo
+		if err := r.access.Test(ctx, src); err != nil {
 			fmt.Fprintln(stderr, "piway:", err)
 			return 1
 		}
@@ -321,9 +373,14 @@ func (r repoCLI) showKey(repo string) int {
 		fmt.Fprintln(r.stderr, "piway:", err)
 		return 1
 	}
-	fmt.Fprintf(r.stdout, "Add this deploy key to %s (read access only, leave \"Allow write access\" off):\n\n", repo)
+	t, _ := webhook.TargetOf(r.store.Targets(), repo)
+	if t.IsGitLab() {
+		fmt.Fprintf(r.stdout, "Add this deploy key to %s under Settings > Repository > Deploy keys (read access only: leave \"Grant write permissions\" off):\n\n", repo)
+	} else {
+		fmt.Fprintf(r.stdout, "Add this deploy key to %s (read access only, leave \"Allow write access\" off):\n\n", repo)
+	}
 	fmt.Fprintf(r.stdout, "  %s\n\n", pub)
-	fmt.Fprintf(r.stdout, "  %s\n\n", gitauth.DeployKeyURL(repo))
+	fmt.Fprintf(r.stdout, "  %s\n\n", gitauth.DeployKeyURLFor(t.Provider, t.Host, repo))
 	fmt.Fprintf(r.stdout, "Then check: piway repo test %s\n", repo)
 	return 0
 }

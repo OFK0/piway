@@ -45,13 +45,17 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { usePoll } from '@/hooks/use-poll'
 import { navigate } from '@/lib/navigation'
 import { appPath } from '@/lib/routes'
-import { parseRepo } from '@/lib/repo-input'
+import { parseGitLabRepo, parseRepo } from '@/lib/repo-input'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const authLabel: Record<RepoAuth, string> = { 'deploy-key': 'Deploy key', token: 'Token' }
 
 type Access = 'public' | RepoAuth
+type Provider = 'github' | 'gitlab'
+
+const providerOf = (r: Pick<Repo, 'provider'>): Provider => (r.provider === 'gitlab' ? 'gitlab' : 'github')
+const providerName: Record<Provider, string> = { github: 'GitHub', gitlab: 'GitLab' }
 
 // The repositories that deploy on push (apps.yaml), editable without a restart.
 export function ReposCard({ onChange }: { onChange?: () => void }) {
@@ -68,11 +72,11 @@ export function ReposCard({ onChange }: { onChange?: () => void }) {
     <Card>
       <CardHeader>
         <CardTitle>Repositories</CardTitle>
-        <CardDescription>A push to one of these branches on GitHub deploys it.</CardDescription>
+        <CardDescription>A push to one of these branches on GitHub or GitLab deploys it.</CardDescription>
         <CardAction>
           <AddRepo
             onAdded={changed}
-            webhookURL={data ? (data.webhook.url ?? '') : null}
+            webhookURLs={data ? { github: data.webhook.url ?? '', gitlab: (data.gitlab ?? data.webhook).url ?? '' } : null}
             privateAvailable={data?.private?.available ?? false}
             tokenSet={data?.private?.token_set ?? false}
           />
@@ -83,7 +87,7 @@ export function ReposCard({ onChange }: { onChange?: () => void }) {
           <p className="flex items-start gap-2 type-caption text-muted-foreground">
             <WarningIcon className="mt-0.5 shrink-0" aria-hidden />
             <span>
-              <code className="type-code">webhook_secret</code> is not set, so piway refuses every delivery from GitHub.
+              <code className="type-code">webhook_secret</code> is not set, so piway refuses every delivery from GitHub and GitLab.
               Set it, then restart piway once.
             </span>
           </p>
@@ -116,7 +120,10 @@ function RepoRow({ repo, tokenSet, onChanged }: { repo: Repo; tokenSet: boolean;
     setBusy(true)
     try {
       const res = await removeRepo(repo.repo, repo.branch, repo.path)
-      const notes = [repo.app && `${repo.app} keeps running.`, res?.key_removed && 'Its deploy key was deleted; remove it on GitHub too.']
+      const notes = [
+        repo.app && `${repo.app} keeps running.`,
+        res?.key_removed && `Its deploy key was deleted; remove it on ${providerName[providerOf(repo)]} too.`,
+      ]
       toast.success(`Removed ${label}`, {
         description: notes.filter(Boolean).join(' ') || undefined,
       })
@@ -132,6 +139,7 @@ function RepoRow({ repo, tokenSet, onChanged }: { repo: Repo; tokenSet: boolean;
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate type-title">{repo.repo}</span>
+          {repo.provider === 'gitlab' && <Badge variant="secondary">{repo.host ? `GitLab · ${repo.host}` : 'GitLab'}</Badge>}
           {repo.auth && (
             <Badge variant="outline">
               <LockIcon data-icon="inline-start" aria-hidden />
@@ -163,7 +171,7 @@ function RepoRow({ repo, tokenSet, onChanged }: { repo: Repo; tokenSet: boolean;
               <DialogDescription>
                 {repo.auth === 'deploy-key'
                   ? 'piway reads this private repository with its own deploy key.'
-                  : 'piway reads this private repository with the stored GitHub token.'}
+                  : `piway reads this private repository with the stored ${providerName[providerOf(repo)]} token.`}
               </DialogDescription>
             </DialogHeader>
             <AccessSteps repo={repo} tokenSet={tokenSet} onTokenSaved={onChanged} />
@@ -208,6 +216,7 @@ function copy(text: string) {
 
 // What a private repository needs on GitHub, and a way to check it.
 function AccessSteps({ repo, tokenSet, onTokenSaved }: { repo: Repo; tokenSet: boolean; onTokenSaved?: () => void }) {
+  const gitlab = repo.provider === 'gitlab'
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {repo.auth === 'deploy-key' && repo.public_key && (
@@ -225,8 +234,17 @@ function AccessSteps({ repo, tokenSet, onTokenSaved }: { repo: Repo; tokenSet: b
             </Button>
           </div>
           <FieldDescription>
-            On GitHub, add it under the repository's Settings, Deploy keys, with any title. Leave{' '}
-            <em>Allow write access</em> off: piway only reads.
+            {gitlab ? (
+              <>
+                On GitLab, add it under the project's Settings, Repository, Deploy keys, with any title. Leave{' '}
+                <em>Grant write permissions to this key</em> off: piway only reads.
+              </>
+            ) : (
+              <>
+                On GitHub, add it under the repository's Settings, Deploy keys, with any title. Leave{' '}
+                <em>Allow write access</em> off: piway only reads.
+              </>
+            )}
           </FieldDescription>
           {repo.deploy_key_url && (
             <Button
@@ -237,7 +255,7 @@ function AccessSteps({ repo, tokenSet, onTokenSaved }: { repo: Repo; tokenSet: b
               nativeButton={false}
             >
               <ArrowSquareOutIcon data-icon="inline-start" />
-              Open Add deploy key
+              {gitlab ? 'Open Deploy keys' : 'Open Add deploy key'}
             </Button>
           )}
         </Field>
@@ -344,16 +362,18 @@ function TestAccess({ repo }: { repo: string }) {
 
 function AddRepo({
   onAdded,
-  webhookURL,
+  webhookURLs,
   privateAvailable,
   tokenSet,
 }: {
   onAdded: () => void
-  webhookURL: string | null
+  webhookURLs: Record<Provider, string> | null
   privateAvailable: boolean
   tokenSet: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [provider, setProvider] = useState<Provider>('github')
+  const [host, setHost] = useState('')
   const [repo, setRepo] = useState('')
   const [branch, setBranch] = useState('main')
   const [dir, setDir] = useState('')
@@ -366,6 +386,8 @@ function AddRepo({
   const reset = (next: boolean) => {
     setOpen(next)
     if (!next) {
+      setProvider('github')
+      setHost('')
       setRepo('')
       setBranch('main')
       setDir('')
@@ -378,16 +400,27 @@ function AddRepo({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const name = parseRepo(repo)
+    const gitlab = provider === 'gitlab'
+    const name = gitlab ? parseGitLabRepo(repo, host) : parseRepo(repo)
     if (!name) {
-      setError('Use owner/name, for example OFK0/guestbook, or paste the GitHub URL.')
+      setError(
+        gitlab
+          ? 'Use group/name or group/subgroup/name, or paste the GitLab URL.'
+          : 'Use owner/name, for example OFK0/guestbook, or paste the GitHub URL.',
+      )
       return
     }
     setSaving(true)
     setError(null)
     try {
       if (access === 'token' && token.trim() !== '') await setRepoToken(token.trim())
-      const entry = await addRepo(name, branch.trim() || 'main', access === 'public' ? undefined : access, dir.trim().replace(/^\/+|\/+$/g, ''))
+      const entry = await addRepo(
+        name,
+        branch.trim() || 'main',
+        access === 'public' ? undefined : access,
+        dir.trim().replace(/^\/+|\/+$/g, ''),
+        gitlab ? { host: host.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '') } : undefined,
+      )
       setAdded(entry)
       onAdded()
     } catch (err) {
@@ -397,21 +430,25 @@ function AddRepo({
     }
   }
 
-  // webhookURL is the address GitHub reaches piway at, as piway found it; ''
-  // when it knows none (null: still loading). The address the dashboard was
+  // webhookURL is the address the provider reaches piway at, as piway found
+  // it; '' when it knows none (null: still loading). The address the dashboard was
   // opened at is not offered: it is often tailnet-only, which GitHub cannot
   // reach (#140).
+  const addedProvider = added ? providerOf(added) : provider
+  const pname = providerName[addedProvider]
+  const webhookURL = webhookURLs ? webhookURLs[addedProvider] : null
   const webhook =
     webhookURL === '' ? (
       <Alert>
         <WarningIcon />
         <AlertTitle>piway does not know a public address</AlertTitle>
         <AlertDescription>
-          GitHub must be able to reach piway to send pushes, and the address you opened the dashboard at may not be
+          {pname} must be able to reach piway to send pushes, and the address you opened the dashboard at may not be
           public. Publish the webhook (for example with Tailscale Funnel, see docs/REMOTE.md) and piway finds the
-          address, or set <code className="type-code">webhook_url</code> in its config. Then add a webhook on the
-          repository with that address, content type <code className="type-code">application/json</code>, the same
-          secret as <code className="type-code">webhook_secret</code>, and the push event.
+          address, or set <code className="type-code">webhook_url</code> in its config. Then add a webhook on the{' '}
+          {addedProvider === 'gitlab' ? 'project' : 'repository'} with that address and the same secret as{' '}
+          <code className="type-code">webhook_secret</code>
+          {addedProvider === 'gitlab' ? ' as its Secret token, and the Push events trigger.' : ', content type application/json, and the push event.'}
         </AlertDescription>
       </Alert>
     ) : (
@@ -425,9 +462,18 @@ function AddRepo({
         </Button>
       </div>
       <FieldDescription>
-        Content type <code className="type-code">application/json</code>, the same secret as piway's{' '}
-        <code className="type-code">webhook_secret</code>, and the push event. This is the address GitHub reaches
-        piway at, not the one you opened this dashboard at.
+        {addedProvider === 'gitlab' ? (
+          <>
+            Under Settings, Webhooks: the Secret token is piway's <code className="type-code">webhook_secret</code>, and
+            the trigger is Push events.
+          </>
+        ) : (
+          <>
+            Content type <code className="type-code">application/json</code>, the same secret as piway's{' '}
+            <code className="type-code">webhook_secret</code>, and the push event.
+          </>
+        )}{' '}
+        This is the address {pname} reaches piway at, not the one you opened this dashboard at.
       </FieldDescription>
     </Field>
       )
@@ -449,8 +495,8 @@ function AddRepo({
               </DialogTitle>
               <DialogDescription>
                 {added.auth
-                  ? 'Two steps on GitHub: let piway read the repository, then add a webhook so GitHub tells piway about pushes.'
-                  : "Last step: on the repository's Settings, Webhooks, add a webhook so GitHub tells piway about pushes."}
+                  ? `Two steps on ${pname}: let piway read the repository, then add a webhook so ${pname} tells piway about pushes.`
+                  : `Last step: on the ${addedProvider === 'gitlab' ? "project's" : "repository's"} Settings, Webhooks, add a webhook so ${pname} tells piway about pushes.`}
               </DialogDescription>
             </DialogHeader>
             {added.auth ? (
@@ -486,14 +532,49 @@ function AddRepo({
               </DialogDescription>
             </DialogHeader>
             <FieldGroup>
+              <Field>
+                <FieldLabel id="repo-provider">Provider</FieldLabel>
+                <ToggleGroup
+                  variant="outline"
+                  size="sm"
+                  value={[provider]}
+                  onValueChange={(v: string[]) => {
+                    if (!v[0]) return
+                    setProvider(v[0] as Provider)
+                    // GitLab has no tokens here: deploy key or public only.
+                    if (v[0] === 'gitlab' && access === 'token') setAccess('deploy-key')
+                  }}
+                  aria-labelledby="repo-provider"
+                >
+                  <ToggleGroupItem value="github">GitHub</ToggleGroupItem>
+                  <ToggleGroupItem value="gitlab">GitLab</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+              {provider === 'gitlab' && (
+                <Field>
+                  <FieldLabel htmlFor="repo-host">GitLab server</FieldLabel>
+                  <Input
+                    id="repo-host"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="gitlab.com"
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                  />
+                  <FieldDescription>
+                    Leave empty for gitlab.com. For a self-hosted server, its host name; add its SSH host key to{' '}
+                    <code className="type-code">keys/known_hosts_extra</code> for a private project.
+                  </FieldDescription>
+                </Field>
+              )}
               <Field data-invalid={error ? true : undefined}>
-                <FieldLabel htmlFor="repo-name">Repository</FieldLabel>
+                <FieldLabel htmlFor="repo-name">{provider === 'gitlab' ? 'Project' : 'Repository'}</FieldLabel>
                 <Input
                   id="repo-name"
                   autoFocus
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="owner/name"
+                  placeholder={provider === 'gitlab' ? 'group/name' : 'owner/name'}
                   value={repo}
                   onChange={(e) => setRepo(e.target.value)}
                 />
@@ -536,13 +617,13 @@ function AddRepo({
                   >
                     <ToggleGroupItem value="public">Public</ToggleGroupItem>
                     <ToggleGroupItem value="deploy-key">Deploy key</ToggleGroupItem>
-                    <ToggleGroupItem value="token">Token</ToggleGroupItem>
+                    {provider === 'github' && <ToggleGroupItem value="token">Token</ToggleGroupItem>}
                   </ToggleGroup>
                   <FieldDescription>
                     {access === 'public'
                       ? 'Anyone can read the repository; piway needs nothing.'
                       : access === 'deploy-key'
-                        ? 'Recommended for a private repository: piway makes a key that reads only this repository. You add it on GitHub next.'
+                        ? `Recommended for a private repository: piway makes a key that reads only this repository. You add it on ${providerName[provider]} next.`
                         : 'A fine-grained GitHub token with Contents: Read-only; one token can serve many repositories.'}
                   </FieldDescription>
                 </Field>
