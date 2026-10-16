@@ -137,8 +137,15 @@ module Feeds
         halt status_code, JSON.generate(body)
       end
 
+      # raw_body is the request body even when Rack already read it to
+      # parse a form (a client that sends no Content-Type gets a form one).
+      def raw_body
+        request.body.rewind if request.body.respond_to?(:rewind)
+        request.body.read
+      end
+
       def body_json
-        JSON.parse(request.body.read)
+        JSON.parse(raw_body)
       rescue JSON::ParserError
         json 400, error: 'send JSON'
       end
@@ -224,7 +231,7 @@ module Feeds
     end
 
     post '/opml' do
-      doc = REXML::Document.new(request.body.read)
+      doc = REXML::Document.new(raw_body)
       urls = REXML::XPath.match(doc, '//outline[@xmlUrl]').map { |o| o.attributes['xmlUrl'] }.grep(%r{\Ahttps?://})
       added = urls.count do |u|
         Feeds.db.execute('INSERT OR IGNORE INTO feeds (url) VALUES (?)', [u])
