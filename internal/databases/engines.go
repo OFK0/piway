@@ -150,8 +150,21 @@ exec docker-entrypoint.sh redis-server --aclfile /data/users.acl --maxmemory 48m
 // containerName is the engine's container, also its host name on Network.
 func containerName(e string) string { return "piway-" + e }
 
-// volumeName is where the engine keeps its data.
-func volumeName(e string) string { return "piway-db-" + e }
+// volumeName is where an engine running image keeps its data. The major
+// version is part of it: data directories are not compatible across
+// majors, so an upgrade fills a new volume and leaves the old one.
+func volumeName(e, image string) string { return "piway-db-" + e + "-" + major(image) }
+
+// major is the version in an image's tag: postgres:17-alpine is 17,
+// mariadb:11.4 is 11.4.
+func major(image string) string {
+	_, tag, ok := strings.Cut(image, ":")
+	if !ok {
+		return "latest"
+	}
+	tag, _, _ = strings.Cut(tag, "-")
+	return tag
+}
 
 // Env returns the variables app gets for engines, from stored passwords.
 // With both postgres and mariadb, DATABASE_URL is PostgreSQL's.

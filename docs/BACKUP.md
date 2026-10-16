@@ -19,9 +19,9 @@ backup on the same SD card does not survive the card.
 | Part | From | Notes |
 | ---- | ---- | ----- |
 | Configuration | `~/.config/piway/` (the directory of `apps.yaml`) | `config.yaml`, `apps.yaml`, `alerts.yaml`, `secrets/`, `keys/`, `password`. |
-| State | the data directory (`~/.local/state/piway/`) | Deploy records and their piway.yaml files, API tokens, push subscriptions and the push key. Sign-in sessions are left out: sign in again. |
+| State | the data directory (`~/.local/state/piway/`) | Deploy records and their piway.yaml files, API tokens, push subscriptions and the push key, and the nightly database dumps ([DATABASES.md](DATABASES.md#backups)). Sign-in sessions are left out: sign in again. |
 | Metrics history | the data directory | Only with `-metrics`; it can be tens of megabytes. |
-| Volumes | every app volume (`run.volumes`) | Files with their owners and modes. SQLite databases use SQLite's online backup (below). |
+| Volumes | every app volume (`run.volumes`) | Files with their owners and modes. SQLite databases use SQLite's online backup (below). The PostgreSQL, MariaDB and Redis engines' volumes are left out: a copy of a running server's data directory may not be consistent, so their apps' logical dumps (in the state) are what to restore from. |
 
 Images are not included: after a restore, piway builds each app again from
 its repository on its next deploy.

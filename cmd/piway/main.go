@@ -58,6 +58,8 @@ func main() {
 			os.Exit(runBackup(os.Args[2:]))
 		case "restore":
 			os.Exit(runRestore(os.Args[2:]))
+		case "db":
+			os.Exit(runDB(os.Args[2:]))
 		case "doctor":
 			os.Exit(runDoctor(os.Args[2:]))
 		case "repo":
@@ -512,7 +514,16 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 		dataDir = config.DefaultDataDir()
 	}
 	secretStore := &secrets.Store{Dir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets")}
-	dbs := &databases.Manager{Docker: docker.New(sock), DockerHost: "unix://" + sock, Dir: filepath.Join(filepath.Dir(cfg.AppsFile), "databases")}
+	dbs := newDatabases(cfg, sock, dataDir)
+	go dbs.Nightly(ctx, 3*time.Hour+30*time.Minute, databases.Keep, func(msg string, err error) {
+		if err != nil {
+			log.Warn("database backups", "err", err, "done", msg)
+			return
+		}
+		if msg != "" {
+			log.Info("database backups", "done", msg)
+		}
+	})
 	steps := deploy.ExecSteps{
 		Docker:     docker.New(sock),
 		Router:     routes,

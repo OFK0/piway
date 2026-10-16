@@ -121,3 +121,66 @@ func TestDiskOf(t *testing.T) {
 		t.Error("an unknown disk should be treated as an SD card")
 	}
 }
+
+func TestMajorAndVolume(t *testing.T) {
+	for image, want := range map[string]string{
+		"postgres:17-alpine": "piway-db-postgres-17",
+		"mariadb:11.4":       "piway-db-mariadb-11.4",
+		"redis:7.4-alpine":   "piway-db-redis-7.4",
+		"redis":              "piway-db-redis-latest",
+	} {
+		name, _, _ := strings.Cut(image, ":")
+		if got := volumeName(name, image); got != want {
+			t.Errorf("volumeName(%s) = %s, want %s", image, got, want)
+		}
+	}
+}
+
+func TestBackupsListAndApps(t *testing.T) {
+	m := &Manager{Dir: t.TempDir(), BackupDir: t.TempDir()}
+	m.appPassword("blog", "postgres")
+	m.appPassword("blog", "redis")
+	m.appPassword("shop", "postgres")
+	if apps, _ := m.Apps("postgres"); !slices.Equal(apps, []string{"blog", "shop"}) {
+		t.Errorf("postgres apps %v", apps)
+	}
+	if apps, _ := m.Apps("mariadb"); len(apps) != 0 {
+		t.Errorf("mariadb apps %v", apps)
+	}
+
+	dir := filepath.Join(m.BackupDir, "postgres", "blog")
+	os.MkdirAll(dir, 0o700)
+	for _, name := range []string{"20261014-033000.sql.gz", "20261016-033000.sql.gz", "20261015-033000.sql.gz", "notes.txt", ".tmp-1"} {
+		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600)
+	}
+	bs, err := m.Backups("postgres", "blog")
+	if err != nil || len(bs) != 3 {
+		t.Fatalf("backups %v %v", bs, err)
+	}
+	if bs[0].Time.Day() != 16 || bs[2].Time.Day() != 14 {
+		t.Errorf("not newest first: %v", bs)
+	}
+	m.prune("postgres", "blog", 2)
+	if bs, _ := m.Backups("postgres", "blog"); len(bs) != 2 || bs[1].Time.Day() != 15 {
+		t.Errorf("after prune: %v", bs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "notes.txt")); err != nil {
+		t.Error("prune deleted a file that is not a backup")
+	}
+}
+
+func TestDumpCommands(t *testing.T) {
+	for _, name := range Names() {
+		cmd := strings.Join(dumpCmd(engines[name], "blog"), " ")
+		if cmd == "" || !strings.Contains(cmd, "blog") {
+			t.Errorf("%s: %q", name, cmd)
+		}
+	}
+	if !strings.Contains(strings.Join(dumpCmd(engines["postgres"], "blog"), " "), "--no-owner") {
+		t.Error("postgres dumps keep owners, which a restore as the app's role cannot set")
+	}
+	// redis-cli reads one command per line.
+	if strings.Contains(restoreScript, "\n") || strings.Contains(clearScript, "\n") {
+		t.Error("a Redis script that is fed through stdin spans lines")
+	}
+}

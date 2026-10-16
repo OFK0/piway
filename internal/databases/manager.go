@@ -48,8 +48,10 @@ type Manager struct {
 	Docker     *docker.Client
 	DockerHost string // for the docker CLI, which runs the clients in the engines
 	Dir        string // admin/<engine> and apps/<app>.env passwords
+	BackupDir  string // logical backups: <engine>/<app>/<time>.sql.gz
 	// OnSD reports whether path is on an SD card; nil asks the kernel.
 	OnSD func(path string) bool
+	Now  func() time.Time // for tests; nil is time.Now
 
 	mu sync.Mutex // one engine start or provisioning at a time
 }
@@ -78,9 +80,8 @@ func (m *Manager) Prepare(ctx context.Context, app string, list []string, out io
 		if err != nil {
 			return nil, err
 		}
-		cmd, stdin := e.provision(app, pw)
-		if err := m.exec(ctx, e, cmd, stdin); err != nil {
-			return nil, fmt.Errorf("%s: set up %s's database: %w", name, app, err)
+		if err := m.provisionLocked(ctx, e, app, pw); err != nil {
+			return nil, err
 		}
 		fmt.Fprintf(out, "Database: %s on %s\n", app, containerName(name))
 		passwords[name] = pw
@@ -136,7 +137,7 @@ func (m *Manager) ensure(ctx context.Context, e *engine, out io.Writer) error {
 			return err
 		}
 	}
-	vol, err := m.Docker.CreateVolume(ctx, volumeName(e.name), map[string]string{LabelEngine: e.name})
+	vol, err := m.Docker.CreateVolume(ctx, volumeName(e.name, e.image), map[string]string{LabelEngine: e.name})
 	if err != nil {
 		return err
 	}
@@ -157,7 +158,7 @@ func (m *Manager) ensure(ctx context.Context, e *engine, out io.Writer) error {
 		Cmd:         e.cmd(sd),
 		Env:         e.env(admin),
 		Labels:      map[string]string{LabelEngine: e.name},
-		Mounts:      []docker.Mount{{Volume: volumeName(e.name), Target: e.data}},
+		Mounts:      []docker.Mount{{Volume: vol.Name, Target: e.data}},
 		MemoryBytes: e.memory,
 		Network:     Network,
 	})
