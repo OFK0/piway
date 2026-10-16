@@ -30,6 +30,7 @@ import (
 
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/secrets"
+	"golang.org/x/sys/unix"
 )
 
 // Network is the internal network engines and the apps that use them
@@ -49,11 +50,39 @@ type Manager struct {
 	DockerHost string // for the docker CLI, which runs the clients in the engines
 	Dir        string // admin/<engine> and apps/<app>.env passwords
 	BackupDir  string // logical backups: <engine>/<app>/<time>.sql.gz
+	// Images replaces the pinned image of an engine, for engines created
+	// from now on (tests, and pinning another version).
+	Images map[string]string
 	// OnSD reports whether path is on an SD card; nil asks the kernel.
 	OnSD func(path string) bool
 	Now  func() time.Time // for tests; nil is time.Now
 
-	mu sync.Mutex // one engine start or provisioning at a time
+	mu sync.Mutex // see lock
+}
+
+// lock serialises what starts, changes or replaces servers: within this
+// process with mu, and with other piway processes (the service and a
+// piway db command) with an exclusive lock on a file in Dir.
+func (m *Manager) lock() (unlock func(), err error) {
+	m.mu.Lock()
+	if err := os.MkdirAll(m.Dir, 0o700); err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(m.Dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+		f.Close()
+		m.mu.Unlock()
+		return nil, err
+	}
+	return func() {
+		f.Close() // releases the lock
+		m.mu.Unlock()
+	}, nil
 }
 
 func (m *Manager) apps() *secrets.Store { return &secrets.Store{Dir: filepath.Join(m.Dir, "apps")} }
@@ -62,8 +91,11 @@ func (m *Manager) apps() *secrets.Store { return &secrets.Store{Dir: filepath.Jo
 // and user on it, and returns the variables app gets ("NAME=value"). It
 // is safe to call on every release.
 func (m *Manager) Prepare(ctx context.Context, app string, list []string, out io.Writer) ([]string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	unlock, err := m.lock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if err := m.Docker.EnsureNetwork(ctx, Network, true, map[string]string{LabelEngine: "network"}); err != nil {
 		return nil, fmt.Errorf("network %s: %w", Network, err)
 	}
@@ -128,16 +160,39 @@ func (m *Manager) ensure(ctx context.Context, e *engine, out io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(out, "Starting %s (%s) for the first time\n", name, e.image)
-	if ok, err := m.Docker.ImageExists(ctx, e.image); err != nil {
+	fmt.Fprintf(out, "Starting %s (%s) for the first time\n", name, m.image(e))
+	return m.create(ctx, e, m.image(e), out)
+}
+
+// Pinned is the image a new server for engine starts from.
+func (m *Manager) Pinned(engine string) string {
+	if e, ok := engines[engine]; ok {
+		return m.image(e)
+	}
+	return ""
+}
+
+// image is the image new e servers use: the pinned one unless Images
+// says otherwise.
+func (m *Manager) image(e *engine) string {
+	if img := m.Images[e.name]; img != "" {
+		return img
+	}
+	return e.image
+}
+
+// create makes and starts e's server from image, on that major version's
+// volume, and waits until it takes connections.
+func (m *Manager) create(ctx context.Context, e *engine, image string, out io.Writer) error {
+	if ok, err := m.Docker.ImageExists(ctx, image); err != nil {
 		return err
 	} else if !ok {
-		fmt.Fprintf(out, "Pulling %s\n", e.image)
-		if err := m.Docker.Pull(ctx, e.image); err != nil {
+		fmt.Fprintf(out, "Pulling %s\n", image)
+		if err := m.Docker.Pull(ctx, image); err != nil {
 			return err
 		}
 	}
-	vol, err := m.Docker.CreateVolume(ctx, volumeName(e.name, e.image), map[string]string{LabelEngine: e.name})
+	vol, err := m.Docker.CreateVolume(ctx, volumeName(e.name, image), map[string]string{LabelEngine: e.name})
 	if err != nil {
 		return err
 	}
@@ -153,8 +208,8 @@ func (m *Manager) ensure(ctx context.Context, e *engine, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	id, err := m.Docker.Create(ctx, name, "", docker.Spec{
-		Image:       e.image,
+	id, err := m.Docker.Create(ctx, containerName(e.name), "", docker.Spec{
+		Image:       image,
 		Cmd:         e.cmd(sd),
 		Env:         e.env(admin),
 		Labels:      map[string]string{LabelEngine: e.name},

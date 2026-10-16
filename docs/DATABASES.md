@@ -55,7 +55,7 @@ memory caps are enforced only when the memory cgroup is on
 40 connections) keep them below the caps anyway.
 
 Major versions are pinned: piway never moves an engine to a new major
-version by itself.
+version by itself (see [Upgrading](#upgrading)).
 
 ## SD card or SSD
 
@@ -113,6 +113,33 @@ live.
 card. `piway backup` ([BACKUP.md](BACKUP.md)) includes the database backups
 along with everything else; copy its archive elsewhere, or sync
 `~/.local/state/piway/db-backups/` to another machine.
+
+## Upgrading
+
+A new piway may pin a newer major version for new engines; engines that
+already run keep theirs until you move them. Data directories do not carry
+across major versions, so the move is a dump and restore:
+
+```sh
+piway db upgrade postgres                       # to the version this piway pins
+piway db upgrade -to postgres:18-alpine postgres
+```
+
+1. Every app's database on the engine is backed up (to the usual backup
+   directory).
+2. The old server stops and is kept, renamed `piway-postgres-17`.
+3. The new version starts on a new volume (`piway-db-postgres-18`), each
+   app gets its database and user back with the same password (so its
+   `DATABASE_URL` does not change), and its backup is loaded.
+
+If anything in step 3 fails, the new server and its volume are removed and
+the old one comes back as it was. On success the old server is removed,
+and its volume stays until you remove it (`docker volume rm
+piway-db-postgres-17`) once the apps work.
+
+Apps see errors while it runs, and should be restarted afterwards. It asks
+for the engine's name before it starts (`-yes` skips that). A deploy that
+needs the engine waits until the upgrade is done.
 
 ## Data
 

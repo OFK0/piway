@@ -255,6 +255,17 @@ func (m *Manager) Restore(ctx context.Context, engine, app, path string) error {
 	if !ok {
 		return fmt.Errorf("unknown database %q", engine)
 	}
+	unlock, err := m.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return m.restoreLocked(ctx, e, app, path)
+}
+
+// restoreLocked is Restore; callers hold the lock.
+func (m *Manager) restoreLocked(ctx context.Context, e *engine, app, path string) error {
+	engine := e.name
 	if ok, err := m.running(ctx, engine); err != nil {
 		return err
 	} else if !ok {
@@ -273,8 +284,6 @@ func (m *Manager) Restore(ctx context.Context, engine, app, path string) error {
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	switch engine {
 	case "postgres":

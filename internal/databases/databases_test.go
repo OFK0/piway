@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -182,5 +183,34 @@ func TestDumpCommands(t *testing.T) {
 	// redis-cli reads one command per line.
 	if strings.Contains(restoreScript, "\n") || strings.Contains(clearScript, "\n") {
 		t.Error("a Redis script that is fed through stdin spans lines")
+	}
+}
+
+func TestLockAcrossManagers(t *testing.T) {
+	// Two Managers on one Dir stand for the service and a piway db command.
+	dir := t.TempDir()
+	a, b := &Manager{Dir: dir}, &Manager{Dir: dir}
+	unlock, err := a.lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan struct{})
+	go func() {
+		unlockB, err := b.lock()
+		if err == nil {
+			unlockB()
+		}
+		close(got)
+	}()
+	select {
+	case <-got:
+		t.Fatal("the second lock did not wait")
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second lock never got it")
 	}
 }
