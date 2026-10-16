@@ -1,0 +1,18 @@
+piway: 1
+name: notes
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 80
+  env:
+    GREETING: hello from piway.yaml
+  secrets:
+    - NOTES_TOKEN
+  databases: [mariadb, redis]   # DATABASE_URL, REDIS_URL, REDIS_PREFIX
+  memory: 192MiB
+  volumes:
+    - data:/data
+  health:
+    path: /healthz
