@@ -1,5 +1,5 @@
 import { WarningCircleIcon } from '@phosphor-icons/react'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 
 import { DeploysDisabledError, fetchApps, fetchBuilds, type AppInfo, type Build } from '@/api'
 import { AppActions } from '@/components/app-actions'
@@ -32,6 +32,13 @@ export default function AppDetailPage({ name }: { name: string }) {
   const now = useNow(true, 10_000)
   const app = poll.data?.app
 
+  // The cards below fetch their own data. Showing the page only when every
+  // one has answered keeps them from popping in and pushing the rest down.
+  const [loaded, setLoaded] = useState<ReadonlySet<string>>(new Set())
+  const markEnv = useCallback(() => setLoaded((s) => (s.has('env') ? s : new Set(s).add('env'))), [])
+  const markVolumes = useCallback(() => setLoaded((s) => (s.has('volumes') ? s : new Set(s).add('volumes'))), [])
+  const waiting = !!app?.live && ((!app.live.site && !loaded.has('env')) || !loaded.has('volumes'))
+
   return (
     <AppShell>
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -40,11 +47,15 @@ export default function AppDetailPage({ name }: { name: string }) {
             Apps
           </a>
           <h1 className="type-display">{name}</h1>
-          {app && (
-            <p className="text-muted-foreground">
-              {app.repo}@{app.branch}, served at <AppAddress app={app} />
-            </p>
-          )}
+          <p className="text-muted-foreground">
+            {app ? (
+              <>
+                {app.repo}@{app.branch}, served at <AppAddress app={app} />
+              </>
+            ) : (
+              <span className="invisible">&nbsp;</span> // keeps the line's height until the app loads
+            )}
+          </p>
         </div>
         {app && <AppActions app={app} busy={isBusy(app)} onDone={poll.reload} />}
       </div>
@@ -69,10 +80,13 @@ export default function AppDetailPage({ name }: { name: string }) {
         </Alert>
       ) : (
         <>
-          <LiveCard app={app} now={now} />
-          {app.live && !app.live.site && <EnvCard app={app.name} busy={isBusy(app)} />}
-          {app.live && <VolumesCard app={app.name} />}
-          <History builds={poll.data.builds} now={now} />
+          {waiting && <Skeleton aria-hidden className="h-64" />}
+          <div className={waiting ? 'hidden' : 'contents'}>
+            <LiveCard app={app} now={now} />
+            {app.live && !app.live.site && <EnvCard app={app.name} busy={isBusy(app)} onLoaded={markEnv} />}
+            {app.live && <VolumesCard app={app.name} onLoaded={markVolumes} />}
+            <History builds={poll.data.builds} now={now} />
+          </div>
         </>
       )}
     </AppShell>

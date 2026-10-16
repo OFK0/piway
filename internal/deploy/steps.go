@@ -126,6 +126,42 @@ func (s ExecSteps) RemoveAppVolume(ctx context.Context, app, volume string) erro
 	return s.Docker.RemoveVolume(ctx, VolumeName(app, volume))
 }
 
+// startWithRetry starts a container of the app. Docker picks the host
+// port, from the range the kernel also uses for outgoing connections, so
+// on a busy machine it can pick one that is taken a moment later. A new
+// container draws a new port: try a few times before failing the deploy.
+func (s ExecSteps) startWithRetry(ctx context.Context, name string, m *manifest.Manifest, spec docker.Spec, out io.Writer) (string, error) {
+	for attempt := 1; ; attempt++ {
+		id, err := s.startContainer(ctx, name, m, spec)
+		if err == nil || attempt == 4 || !strings.Contains(err.Error(), "address already in use") {
+			return id, err
+		}
+		fmt.Fprintf(out, "Docker's port was taken (%v); trying a new container\n", err)
+	}
+}
+
+// startContainer creates and starts one container of the app. A container
+// that does not start is removed.
+func (s ExecSteps) startContainer(ctx context.Context, name string, m *manifest.Manifest, spec docker.Spec) (string, error) {
+	id, err := s.Docker.Create(ctx, name, m.Name, spec)
+	if err != nil {
+		return "", err
+	}
+	if len(m.Run.Databases) > 0 {
+		// The engines are on their own internal network; the app joins it
+		// as well as the default one, which reaches the internet.
+		if err := s.Docker.Connect(ctx, databases.Network, id); err != nil {
+			s.Docker.Remove(context.WithoutCancel(ctx), id, true)
+			return "", fmt.Errorf("join %s: %w", databases.Network, err)
+		}
+	}
+	if err := s.Docker.Start(ctx, id); err != nil {
+		s.Docker.Remove(context.WithoutCancel(ctx), id, true)
+		return "", err
+	}
+	return id, nil
+}
+
 // LabelSecrets on a container is the digest of the secret values it was
 // started with, so the app page can tell when they changed since.
 const LabelSecrets = "piway.secrets"
@@ -183,7 +219,7 @@ func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, o
 	}
 
 	name := "piway-" + m.Name + "-" + strings.ToLower(b.ID)
-	id, err := s.Docker.Create(ctx, name, m.Name, docker.Spec{
+	spec := docker.Spec{
 		Mounts:      mounts,
 		Image:       b.Image,
 		Cmd:         m.Run.Command,
@@ -192,23 +228,12 @@ func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, o
 		Port:        m.Run.Port,
 		MemoryBytes: m.Run.MemoryBytes,
 		CPUs:        m.Run.CPUs,
-	})
+	}
+	id, err := s.startWithRetry(ctx, name, m, spec, out)
 	if errors.Is(err, docker.ErrNotFound) {
 		return fmt.Errorf("image %s no longer exists (piway keeps the last %d per app)", b.Image, keepImages)
 	}
 	if err != nil {
-		return err
-	}
-	if len(m.Run.Databases) > 0 {
-		// The engines are on their own internal network; the app joins it
-		// as well as the default one, which reaches the internet.
-		if err := s.Docker.Connect(ctx, databases.Network, id); err != nil {
-			s.Docker.Remove(context.WithoutCancel(ctx), id, true)
-			return fmt.Errorf("join %s: %w", databases.Network, err)
-		}
-	}
-	if err := s.Docker.Start(ctx, id); err != nil {
-		s.Docker.Remove(context.WithoutCancel(ctx), id, true)
 		return err
 	}
 	d, err := s.Docker.Details(ctx, id)

@@ -10,7 +10,7 @@ import {
   WarningCircleIcon,
   WarningIcon,
 } from '@phosphor-icons/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -54,10 +54,14 @@ const authLabel: Record<RepoAuth, string> = { 'deploy-key': 'Deploy key', token:
 type Access = 'public' | RepoAuth
 
 // The repositories that deploy on push (apps.yaml), editable without a restart.
-export function ReposCard({ onChange }: { onChange?: () => void }) {
+export function ReposCard({ onChange, onLoaded }: { onChange?: () => void; onLoaded?: () => void }) {
   const load = useCallback((signal: AbortSignal) => fetchRepos(signal), [])
   const repos = usePoll(load, 10_000)
   const data = repos.data
+  const answered = data != null || repos.error != null
+  useEffect(() => {
+    if (answered) onLoaded?.()
+  }, [answered, onLoaded])
 
   const changed = () => {
     repos.reload()

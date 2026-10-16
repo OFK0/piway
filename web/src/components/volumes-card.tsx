@@ -1,5 +1,5 @@
 import { TrashIcon, WarningIcon } from '@phosphor-icons/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { fetchAppVolumes, removeAppVolume, type AppVolume } from '@/api'
@@ -26,10 +26,14 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // An app's volumes (run.volumes) and the space they take. Nothing shows
 // for an app without volumes.
-export function VolumesCard({ app }: { app: string }) {
+export function VolumesCard({ app, onLoaded }: { app: string; onLoaded?: () => void }) {
   const load = useCallback((signal: AbortSignal) => fetchAppVolumes(app, signal), [app])
   const poll = usePoll(load, 30_000)
   const volumes = poll.data
+  const answered = volumes != null || poll.error != null
+  useEffect(() => {
+    if (answered) onLoaded?.()
+  }, [answered, onLoaded])
 
   if (poll.error && !volumes) {
     return (

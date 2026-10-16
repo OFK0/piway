@@ -60,7 +60,9 @@ export function AlertsCard() {
             <AlertDescription>{poll.error instanceof Error ? poll.error.message : String(poll.error)}</AlertDescription>
           </Alert>
         ) : !data ? (
-          <Skeleton aria-hidden className="h-32" />
+          // As tall as the card is with the default rules (a line and a
+          // table of seven rows), so the cards below do not jump when it loads.
+          <Skeleton aria-hidden className="h-[21.5rem]" />
         ) : (
           <>
             {data.active.length === 0 ? (

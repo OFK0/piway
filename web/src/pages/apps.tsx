@@ -1,5 +1,5 @@
 import { WarningCircleIcon } from '@phosphor-icons/react'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 
 import { DeploysDisabledError, fetchApps, type AppInfo } from '@/api'
 import { AppActions } from '@/components/app-actions'
@@ -22,32 +22,39 @@ export default function AppsPage() {
   const apps = usePoll(load, 5000)
   const now = useNow(true, 10_000)
 
+  // The repositories card fetches its own list. The page shows once both
+  // lists have answered, so neither pops in and pushes the other down.
+  const [reposReady, setReposReady] = useState(false)
+  const reposLoaded = useCallback(() => setReposReady(true), [])
+  const waiting = !reposReady || (apps.data === null && !apps.error)
+
   return (
     <AppShell>
       <div className="flex flex-col gap-1">
         <h1 className="type-display">Apps</h1>
         <p className="text-muted-foreground">Deployed from git push, one build at a time.</p>
       </div>
-      <ReposCard onChange={apps.reload} />
-      {apps.error instanceof DeploysDisabledError ? (
-        <DeploysOff reason={apps.error.message} />
-      ) : apps.error && !apps.data ? (
-        <Alert variant="destructive">
-          <WarningCircleIcon />
-          <AlertTitle>Couldn't load apps</AlertTitle>
-          <AlertDescription>{String(apps.error)}</AlertDescription>
-        </Alert>
-      ) : apps.data === null ? (
-        <AppListSkeleton />
-      ) : apps.data.length === 0 ? (
-        <NoApps />
-      ) : (
-        <ul className="flex flex-col gap-3" aria-label="Apps">
-          {apps.data.map((a) => (
-            <AppRow key={a.name} app={a} now={now} onChange={apps.reload} />
-          ))}
-        </ul>
-      )}
+      {waiting && <AppListSkeleton />}
+      <div className={waiting ? 'hidden' : 'contents'}>
+        <ReposCard onChange={apps.reload} onLoaded={reposLoaded} />
+        {apps.error instanceof DeploysDisabledError ? (
+          <DeploysOff reason={apps.error.message} />
+        ) : apps.error && !apps.data ? (
+          <Alert variant="destructive">
+            <WarningCircleIcon />
+            <AlertTitle>Couldn't load apps</AlertTitle>
+            <AlertDescription>{String(apps.error)}</AlertDescription>
+          </Alert>
+        ) : apps.data && apps.data.length === 0 ? (
+          <NoApps />
+        ) : (
+          <ul className="flex flex-col gap-3" aria-label="Apps">
+            {apps.data?.map((a) => (
+              <AppRow key={a.name} app={a} now={now} onChange={apps.reload} />
+            ))}
+          </ul>
+        )}
+      </div>
     </AppShell>
   )
 }
@@ -97,9 +104,7 @@ function AppListSkeleton() {
       <p role="status" className="sr-only">
         Loading apps
       </p>
-      {[0, 1].map((i) => (
-        <Skeleton key={i} className="h-24" />
-      ))}
+      <Skeleton className="h-64" />
     </div>
   )
 }

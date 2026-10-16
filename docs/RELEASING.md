@@ -19,7 +19,17 @@ git tag -a v0.2.0 -m "v0.2.0"
 git push origin v0.2.0
 ```
 
-The workflow then, on a native arm64 runner:
+The workflow first runs the end-to-end suite on a native arm64 runner
+(`e2e.yml`, [e2e/README.md](../e2e/README.md)): every example app deployed
+from a local git repository, zero failed requests during a redeploy,
+rollback, secrets, volumes, `kill -9`, databases and the dashboard in a
+browser. If it fails, nothing below runs and nothing is published. It also
+runs on pull requests that change it, and by hand from the Actions tab
+(**e2e**, *Run workflow*). If the repository has the secrets
+`E2E_PRIVATE_REPO` and `E2E_DEPLOY_KEY`, it also deploys a private
+repository with a deploy key.
+
+Then, on a native arm64 runner:
 
 1. Checks that the tag is a version and points at a commit on `main`.
 2. Runs every check: `make lint test-race web-lint web-test`.
@@ -36,7 +46,7 @@ the tag (`git push --delete origin v0.2.0 && git tag -d v0.2.0`) and tag again.
 
 Pull requests that change `release.yml` or the `Makefile` run steps 2–4 as
 a dry run with version `v0.0.0-dryrun`, so the pipeline is tested before a
-real tag needs it.
+real tag needs it. The dry run leaves the end-to-end suite out.
 
 ## Reproducible archives
 

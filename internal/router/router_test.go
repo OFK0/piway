@@ -386,3 +386,46 @@ func TestSwitchBetweenContainerAndSite(t *testing.T) {
 		t.Error("accepted a relative site directory")
 	}
 }
+
+// TestProxyReusesConnections: steady concurrent traffic must reuse its
+// connections to the app. With the default transport (2 idle per host) it
+// opened a new one for most requests, and the sockets left in TIME_WAIT
+// used up the ports Docker draws an app's host port from.
+func TestProxyReusesConnections(t *testing.T) {
+	var conns atomic.Int64
+	backend := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) }))
+	backend.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	backend.Start()
+	defer backend.Close()
+
+	r := newRouter(t)
+	port := freePort(t)
+	if err := r.Set("web", port, backend.URL); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 32}}
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		}()
+	}
+	wg.Wait()
+	if n := conns.Load(); n > 40 {
+		t.Errorf("%d connections to the app for 800 requests from 16 clients; want them reused (at most about 16)", n)
+	}
+}

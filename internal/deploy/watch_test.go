@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/ofk0/piway/internal/docker"
+	"github.com/ofk0/piway/internal/manifest"
 	"github.com/ofk0/piway/internal/router"
 )
 
@@ -115,5 +117,73 @@ func TestReconcile(t *testing.T) {
 	s.Reconcile(ctx, live, "", log)
 	if got := routes.Target("web"); !strings.HasSuffix(got, "41003") {
 		t.Errorf("with no container, route changed to %s", got)
+	}
+}
+
+// startFailingDocker serves create, start and remove, and refuses the
+// first starts with the error Docker gives when the port it drew is taken.
+func startFailingDocker(t *testing.T, failures int) (*docker.Client, *struct{ creates, starts, removes int }) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "dk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	ln, err := net.Listen("unix", filepath.Join(dir, "d.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	counts := &struct{ creates, starts, removes int }{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /{v}/containers/create", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		counts.creates++
+		id := fmt.Sprintf("c%d", counts.creates)
+		mu.Unlock()
+		w.WriteHeader(201)
+		fmt.Fprintf(w, `{"Id":%q}`, id)
+	})
+	mux.HandleFunc("POST /{v}/containers/{id}/start", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		counts.starts++
+		n := counts.starts
+		mu.Unlock()
+		if n <= failures {
+			w.WriteHeader(500)
+			fmt.Fprint(w, `{"message":"driver failed programming external connectivity: listen tcp4 127.0.0.1:32804: bind: address already in use"}`)
+			return
+		}
+		w.WriteHeader(204)
+	})
+	mux.HandleFunc("DELETE /{v}/containers/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		counts.removes++
+		mu.Unlock()
+		w.WriteHeader(204)
+	})
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	return docker.New(filepath.Join(dir, "d.sock")), counts
+}
+
+func TestStartWithRetry(t *testing.T) {
+	m := &manifest.Manifest{Name: "web", Run: &manifest.Run{}}
+	ctx := context.Background()
+
+	// A taken port twice, then success: the third container runs, the
+	// two that did not start are removed.
+	c, counts := startFailingDocker(t, 2)
+	var out strings.Builder
+	id, err := ExecSteps{Docker: c}.startWithRetry(ctx, "piway-web-1", m, docker.Spec{Image: "x"}, &out)
+	if err != nil || id != "c3" || counts.creates != 3 || counts.removes != 2 || strings.Count(out.String(), "port was taken") != 2 {
+		t.Errorf("id %q, err %v, counts %+v, log %q", id, err, *counts, out.String())
+	}
+
+	// Always taken: gives up after four attempts, with the error.
+	c, counts = startFailingDocker(t, 100)
+	if _, err := (ExecSteps{Docker: c}).startWithRetry(ctx, "piway-web-1", m, docker.Spec{Image: "x"}, io.Discard); err == nil || !strings.Contains(err.Error(), "address already in use") || counts.creates != 4 {
+		t.Errorf("err %v, creates %d; want 4 attempts and the error", err, counts.creates)
 	}
 }
