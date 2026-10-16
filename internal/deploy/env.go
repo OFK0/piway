@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/ofk0/piway/internal/databases"
 	"github.com/ofk0/piway/internal/manifest"
 	"github.com/ofk0/piway/internal/secrets"
 )
@@ -21,8 +22,10 @@ type AppEnv struct {
 	// Secrets are run.secrets, then names in the secrets file that
 	// piway.yaml does not declare (Declared false; the app does not get them).
 	Secrets []Secret `json:"secrets"`
-	// Injected are variables piway sets itself, read-only.
-	Injected []EnvVar `json:"injected"`
+	// Injected are variables piway sets itself, such as DATABASE_URL for
+	// run.databases: read-only, and their values (credentials) only
+	// with values.
+	Injected []Injected `json:"injected"`
 	// RestartNeeded: the running container was started with other
 	// secret values than the ones stored now.
 	RestartNeeded bool   `json:"restart_needed"`
@@ -36,6 +39,22 @@ type AppEnv struct {
 type EnvVar struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+// Injected is a variable piway sets. Value is present only when values
+// are shown and piway has set it up (a database is set up on the first
+// deploy that asks for it).
+type Injected struct {
+	Name  string  `json:"name"`
+	From  string  `json:"from"` // what sets it, such as "postgres"
+	Set   bool    `json:"set"`
+	Value *string `json:"value,omitempty"`
+}
+
+// DatabaseEnv reads the variables run.databases gives an app.
+// *databases.Manager implements it.
+type DatabaseEnv interface {
+	Env(app string, engines []string) (vars []databases.Var, ok bool, err error)
 }
 
 // Secret is one of an app's secrets. Value is present only when values
@@ -57,13 +76,16 @@ func (p *Pipeline) Env(ctx context.Context, app string, values bool) (AppEnv, er
 	if err != nil {
 		return AppEnv{}, err
 	}
-	out := AppEnv{App: app, Build: live.ID, Env: []EnvVar{}, Secrets: []Secret{}, Injected: []EnvVar{}, ValuesShown: values}
+	out := AppEnv{App: app, Build: live.ID, Env: []EnvVar{}, Secrets: []Secret{}, Injected: []Injected{}, ValuesShown: values}
 	if m.Static != nil {
 		out.Static = true
 		return out, nil
 	}
 	for _, v := range m.Run.Env {
 		out.Env = append(out.Env, EnvVar{Name: v.Name, Value: v.Value})
+	}
+	if err := p.injected(&out, app, m.Run.Databases, values); err != nil {
+		return AppEnv{}, err
 	}
 	if p.opts.Secrets == nil {
 		for _, name := range m.Run.Secrets {
@@ -157,4 +179,47 @@ func (p *Pipeline) liveManifest(app string) (*manifest.Manifest, Build, error) {
 		return nil, Build{}, fmt.Errorf("piway.yaml of build %s: %w", id, err)
 	}
 	return m, b, nil
+}
+
+// injected adds the variables run.databases gives the app.
+func (p *Pipeline) injected(out *AppEnv, app string, engines []string, values bool) error {
+	if len(engines) == 0 {
+		return nil
+	}
+	var vars []databases.Var
+	ok := false
+	if p.opts.Databases != nil {
+		var err error
+		if vars, ok, err = p.opts.Databases.Env(app, engines); err != nil {
+			return err
+		}
+	}
+	from := map[string]string{}
+	for _, e := range engines {
+		for _, name := range manifest.InjectedEnv[e] {
+			if _, taken := from[name]; !taken || e == "postgres" {
+				from[name] = e
+			}
+		}
+	}
+	if !ok {
+		// Not set up yet: names only, from the manifest.
+		vars = nil
+		for _, e := range engines {
+			for _, name := range manifest.InjectedEnv[e] {
+				if !slices.ContainsFunc(vars, func(v databases.Var) bool { return v.Name == name }) {
+					vars = append(vars, databases.Var{Name: name})
+				}
+			}
+		}
+	}
+	for _, v := range vars {
+		in := Injected{Name: v.Name, From: from[v.Name], Set: ok}
+		if ok && values {
+			value := v.Value
+			in.Value = &value
+		}
+		out.Injected = append(out.Injected, in)
+	}
+	return nil
 }

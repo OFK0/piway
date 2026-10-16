@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ofk0/piway/internal/databases"
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/manifest"
@@ -24,10 +25,19 @@ import (
 // Engine API.
 type ExecSteps struct {
 	Docker     *docker.Client
-	Router     *router.Router  // owns each app's stable port
-	DockerHost string          // unix://… for the docker CLI
-	Secrets    *secrets.Store  // the values of run.secrets
-	Git        *gitauth.Access // credentials for private repositories
+	Router     *router.Router   // owns each app's stable port
+	DockerHost string           // unix://… for the docker CLI
+	Secrets    *secrets.Store   // the values of run.secrets
+	Git        *gitauth.Access  // credentials for private repositories
+	Databases  DatabaseProvider // run.databases; nil refuses apps that ask
+}
+
+// DatabaseProvider gives an app its databases. *databases.Manager
+// implements it.
+type DatabaseProvider interface {
+	// Prepare starts the engines, sets up app's database and user on each
+	// and returns the variables to inject, as NAME=value.
+	Prepare(ctx context.Context, app string, engines []string, out io.Writer) ([]string, error)
 }
 
 // command runs name with args in dir, streaming stdout and stderr to out.
@@ -87,7 +97,7 @@ func (s ExecSteps) volumes(ctx context.Context, m *manifest.Manifest, out io.Wri
 	var mounts []docker.Mount
 	for _, v := range m.Run.Volumes {
 		name := VolumeName(m.Name, v.Name)
-		if err := s.Docker.CreateVolume(ctx, name, map[string]string{docker.LabelApp: m.Name, LabelVolume: v.Name}); err != nil {
+		if _, err := s.Docker.CreateVolume(ctx, name, map[string]string{docker.LabelApp: m.Name, LabelVolume: v.Name}); err != nil {
 			return nil, fmt.Errorf("volume %s: %w", v.Name, err)
 		}
 		fmt.Fprintf(out, "Volume %s (%s) at %s\n", v.Name, name, v.Path)
@@ -146,6 +156,16 @@ func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, o
 	if err != nil {
 		return err
 	}
+	if len(m.Run.Databases) > 0 {
+		if s.Databases == nil {
+			return errors.New("run.databases: databases are not available on this piway")
+		}
+		vars, err := s.Databases.Prepare(ctx, m.Name, m.Run.Databases, out)
+		if err != nil {
+			return fmt.Errorf("databases: %w", err)
+		}
+		env = append(env, vars...)
+	}
 	// Docker accepts limits it cannot enforce; say so instead of letting
 	// the manifest's memory: look like protection.
 	if info, err := s.Docker.Info(ctx); err == nil {
@@ -178,6 +198,14 @@ func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, o
 	}
 	if err != nil {
 		return err
+	}
+	if len(m.Run.Databases) > 0 {
+		// The engines are on their own internal network; the app joins it
+		// as well as the default one, which reaches the internet.
+		if err := s.Docker.Connect(ctx, databases.Network, id); err != nil {
+			s.Docker.Remove(context.WithoutCancel(ctx), id, true)
+			return fmt.Errorf("join %s: %w", databases.Network, err)
+		}
 	}
 	if err := s.Docker.Start(ctx, id); err != nil {
 		s.Docker.Remove(context.WithoutCancel(ctx), id, true)

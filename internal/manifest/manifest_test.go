@@ -94,6 +94,7 @@ run:
   volumes:
     - data:/data
     - uploads:/app/public/uploads
+  databases: [redis]
 `)
 	want := &Manifest{
 		Version: 1,
@@ -108,6 +109,7 @@ run:
 			CPUs:        0.5,
 			Health:      Health{Path: "/healthz", Interval: 5 * time.Second, Timeout: time.Second, StartPeriod: time.Minute},
 			Volumes:     []Volume{{"data", "/data"}, {"uploads", "/app/public/uploads"}},
+			Databases:   []string{"redis"},
 		},
 	}
 	if !reflect.DeepEqual(m, want) {
@@ -168,6 +170,12 @@ func TestInvalid(t *testing.T) {
 			`piway.yaml:12: run.volumes[5]: cannot mount a volume at /`,
 			`piway.yaml:14: run.volumes[7]: volume "one" is listed twice`,
 			`piway.yaml:15: run.volumes[8]: /srv/sub overlaps /srv, where volume "one" is mounted`,
+		}},
+		{"databases", "piway: 1\nname: a\nbuild:\nrun:\n  port: 1\n  env: {DATABASE_URL: x}\n  secrets: [REDIS_URL]\n  databases: [postgres, mysql, postgres, redis]\n", []string{
+			"piway.yaml:6: run.env.DATABASE_URL: is set by piway for the postgres database; remove it",
+			"piway.yaml:7: run.secrets: REDIS_URL is set by piway for the redis database; remove it",
+			`piway.yaml:8: run.databases[1]: "mysql" is not a database piway runs; use postgres, mariadb, redis`,
+			`piway.yaml:8: run.databases[2]: "postgres" is listed twice`,
 		}},
 		{"build without run", "piway: 1\nname: a\nbuild:\n", []string{
 			"piway.yaml:3: run: is required with build: piway needs at least run.port",

@@ -199,13 +199,23 @@ export interface AppSecret {
   /** Only for a signed-in browser, and only when set. */
   value?: string
 }
+/** A variable piway sets, such as DATABASE_URL for run.databases. */
+export interface InjectedVar {
+  name: string
+  /** What sets it, such as "postgres". */
+  from: string
+  /** False until the first deploy that sets it up. */
+  set: boolean
+  /** Only for a signed-in browser, and only when set. */
+  value?: string
+}
 export interface AppEnv {
   app: string
   build: string
   static: boolean
   env: EnvVar[]
   secrets: AppSecret[]
-  injected: EnvVar[]
+  injected: InjectedVar[]
   restart_needed: boolean
   file: string
   values_shown: boolean

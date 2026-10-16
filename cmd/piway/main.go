@@ -25,6 +25,7 @@ import (
 	"github.com/ofk0/piway/internal/auth"
 	"github.com/ofk0/piway/internal/caddy"
 	"github.com/ofk0/piway/internal/config"
+	"github.com/ofk0/piway/internal/databases"
 	"github.com/ofk0/piway/internal/deploy"
 	"github.com/ofk0/piway/internal/docker"
 	"github.com/ofk0/piway/internal/gitauth"
@@ -511,21 +512,24 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 		dataDir = config.DefaultDataDir()
 	}
 	secretStore := &secrets.Store{Dir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets")}
+	dbs := &databases.Manager{Docker: docker.New(sock), DockerHost: "unix://" + sock, Dir: filepath.Join(filepath.Dir(cfg.AppsFile), "databases")}
 	steps := deploy.ExecSteps{
 		Docker:     docker.New(sock),
 		Router:     routes,
 		DockerHost: "unix://" + sock,
 		Secrets:    secretStore,
 		Git:        access,
+		Databases:  dbs,
 	}
 	opts := deploy.Options{
-		Targets: repos,
-		Git:     access,
-		Secrets: secretStore,
-		Dir:     filepath.Join(dataDir, "deploys"),
-		Steps:   steps,
-		Runtime: steps,
-		Logger:  log,
+		Targets:   repos,
+		Git:       access,
+		Secrets:   secretStore,
+		Databases: dbs,
+		Dir:       filepath.Join(dataDir, "deploys"),
+		Steps:     steps,
+		Runtime:   steps,
+		Logger:    log,
 		OnFinish: func(b deploy.Build) {
 			if b.State == deploy.Succeeded || b.State == deploy.Failed {
 				alerts.DeployFinished(notify.Target(b.Repo, b.Branch), b.App, b.State == deploy.Failed, b.Error, b.Finished)

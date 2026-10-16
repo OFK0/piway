@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ofk0/piway/internal/databases"
 	"github.com/ofk0/piway/internal/manifest"
 	"github.com/ofk0/piway/internal/secrets"
 )
@@ -126,5 +127,44 @@ func TestExecStepsEnv(t *testing.T) {
 	}
 	if digest == "" || digest != secrets.Digest(m.Run.Secrets, map[string]string{"API_KEY": "k", "SESSION_SECRET": "s"}) {
 		t.Errorf("digest %q", digest)
+	}
+}
+
+type fakeDatabases struct{ ready bool }
+
+func (f fakeDatabases) Env(app string, engines []string) ([]databases.Var, bool, error) {
+	if !f.ready {
+		return nil, false, nil
+	}
+	return []databases.Var{{Name: "DATABASE_URL", Value: "postgres://x"}, {Name: "POSTGRES_URL", Value: "postgres://x"}}, true, nil
+}
+
+func TestEnvInjected(t *testing.T) {
+	ctx := context.Background()
+	db := &fakeDatabases{}
+	h := start(t, t.TempDir(), Options{Databases: db})
+	h.steps.mu.Lock()
+	h.steps.manifest = "piway: 1\nname: guestbook\nbuild:\nrun:\n  port: 1\n  databases: [postgres]\n"
+	h.steps.mu.Unlock()
+	id := push(t, h.p, "aaaaaaaaaaaa1")
+	started(t, h.steps)
+	h.steps.release <- nil
+	waitState(t, h.p, id, Succeeded)
+
+	env, err := h.p.Env(ctx, "guestbook", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.Injected) != 2 || env.Injected[0].Set || env.Injected[0].Value != nil || env.Injected[0].From != "postgres" {
+		t.Errorf("before set up: %+v", env.Injected)
+	}
+	db.ready = true
+	env, _ = h.p.Env(ctx, "guestbook", true)
+	if v := env.Injected[0].Value; !env.Injected[0].Set || v == nil || *v != "postgres://x" {
+		t.Errorf("with values: %+v", env.Injected)
+	}
+	env, _ = h.p.Env(ctx, "guestbook", false)
+	if env.Injected[0].Value != nil || !env.Injected[0].Set {
+		t.Errorf("without values: %+v", env.Injected)
 	}
 }

@@ -86,6 +86,7 @@ static:
 | `run.health.timeout` | duration | `2s` | Must be shorter than `interval`. |
 | `run.health.start_period` | duration | `30s` | Failures in this window after start do not count. |
 | `run.volumes` | list of `name:/path` | | Named volumes that keep their data across deploys, restarts and rollbacks ([DEPLOY.md](DEPLOY.md#volumes)). Names are 1–32 characters of `a-z`, `0-9` and `-`. Paths are absolute and clean, cannot be `/` or under `/bin`, `/dev`, `/etc`, `/lib`, `/proc`, `/sbin`, `/sys` or `/usr`, and cannot overlap. |
+| `run.databases` | list | | Shared database engines the app gets its own database on: `postgres`, `mariadb`, `redis`. piway sets `DATABASE_URL`, `REDIS_URL` and similar, which `env` and `secrets` cannot also set ([DATABASES.md](DATABASES.md)). |
 | `static` | mapping | | Static site. Not allowed with `build` or `run`. |
 | `static.dir` | path | required | Directory to serve, relative to the repository root. |
 | `static.spa` | boolean | `false` | Serve `index.html` for paths that do not exist, for client-side routing. |
