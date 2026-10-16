@@ -43,7 +43,7 @@ func (p *Pipeline) Restart(app string) (Build, error) {
 		return Build{}, fmt.Errorf("deploy: the piway.yaml of build %s is gone", src)
 	}
 	b := &Build{
-		ID: p.newID(live.Commit), App: app, Repo: live.Repo, Branch: live.Branch,
+		ID: p.newID(live.Commit), App: app, Repo: live.Repo, Branch: live.Branch, Path: live.Path,
 		Commit: live.Commit, CloneURL: live.CloneURL, Image: live.Image, Site: live.Site,
 		Kind: KindRestart, RollbackOf: src, Pusher: "api", State: Queued, Queued: p.opts.now(),
 	}
@@ -58,6 +58,7 @@ func (p *Pipeline) Restart(app string) (Build, error) {
 type Target struct {
 	Repo   string `json:"repo"`
 	Branch string `json:"branch"`
+	Path   string `json:"path,omitempty"`
 	App    string `json:"app,omitempty"`
 }
 
@@ -76,10 +77,10 @@ func (p *Pipeline) Targets() []Target {
 	configured := p.configured()
 	out := make([]Target, 0, len(configured))
 	for _, t := range configured {
-		tt := Target{Repo: t.Repo, Branch: t.Branch}
+		tt := Target{Repo: t.Repo, Branch: t.Branch, Path: t.Path}
 		for i := len(p.order) - 1; i >= 0; i-- {
 			b := p.builds[p.order[i]]
-			if b.App != "" && strings.EqualFold(b.Repo, t.Repo) && b.Branch == t.Branch {
+			if b.App != "" && strings.EqualFold(b.Repo, t.Repo) && b.Branch == t.Branch && b.Path == t.Path {
 				tt.App = b.App
 				break
 			}
@@ -95,6 +96,7 @@ type DeployRequest struct {
 	App    string `json:"app,omitempty"`
 	Repo   string `json:"repo,omitempty"`
 	Branch string `json:"branch,omitempty"`
+	Path   string `json:"path,omitempty"`   // with repo and branch: which app of the branch
 	Commit string `json:"commit,omitempty"` // full SHA; empty means the branch's newest
 }
 
@@ -117,7 +119,7 @@ func (p *Pipeline) DeployNow(ctx context.Context, r DeployRequest, pusher string
 	if r.Commit != "" && !fullSHA.MatchString(r.Commit) {
 		return Build{}, fmt.Errorf("%w, got %q", ErrBadCommit, r.Commit)
 	}
-	repo, branch, cloneURL, err := p.target(r)
+	repo, branch, path, cloneURL, err := p.target(r)
 	if err != nil {
 		return Build{}, err
 	}
@@ -135,7 +137,7 @@ func (p *Pipeline) DeployNow(ctx context.Context, r DeployRequest, pusher string
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	b := &Build{
-		ID: p.newID(commit), Repo: repo, Branch: branch, Commit: commit,
+		ID: p.newID(commit), Repo: repo, Branch: branch, Commit: commit, Path: path,
 		Pusher: pusher, CloneURL: cloneURL, State: Queued, Queued: p.opts.now(),
 	}
 	if err := p.enqueueLocked(b); err != nil {
@@ -144,21 +146,21 @@ func (p *Pipeline) DeployNow(ctx context.Context, r DeployRequest, pusher string
 	return *b, nil
 }
 
-// target finds the repository, branch and clone URL r means.
-func (p *Pipeline) target(r DeployRequest) (repo, branch, cloneURL string, err error) {
+// target finds the repository, branch, path and clone URL r means.
+func (p *Pipeline) target(r DeployRequest) (repo, branch, path, cloneURL string, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if r.App != "" {
 		for i := len(p.order) - 1; i >= 0; i-- {
 			b := p.builds[p.order[i]]
 			if b.App == r.App && !b.released() && b.CloneURL != "" {
-				return b.Repo, b.Branch, b.CloneURL, nil
+				return b.Repo, b.Branch, b.Path, b.CloneURL, nil
 			}
 		}
-		return "", "", "", fmt.Errorf("%w: no build of app %q yet; deploy its repo and branch instead", ErrUnknownTarget, r.App)
+		return "", "", "", "", fmt.Errorf("%w: no build of app %q yet; deploy its repo and branch instead", ErrUnknownTarget, r.App)
 	}
 	for _, t := range p.configured() {
-		if strings.EqualFold(t.Repo, r.Repo) && t.Branch == r.Branch {
+		if strings.EqualFold(t.Repo, r.Repo) && t.Branch == r.Branch && t.Path == r.Path {
 			cloneURL := "https://github.com/" + t.Repo + ".git"
 			for i := len(p.order) - 1; i >= 0; i-- { // a URL seen in a push wins
 				if b := p.builds[p.order[i]]; strings.EqualFold(b.Repo, t.Repo) && b.CloneURL != "" {
@@ -166,10 +168,10 @@ func (p *Pipeline) target(r DeployRequest) (repo, branch, cloneURL string, err e
 					break
 				}
 			}
-			return t.Repo, t.Branch, cloneURL, nil
+			return t.Repo, t.Branch, t.Path, cloneURL, nil
 		}
 	}
-	return "", "", "", fmt.Errorf("%w: %s@%s", ErrUnknownTarget, r.Repo, r.Branch)
+	return "", "", "", "", fmt.Errorf("%w: %s", ErrUnknownTarget, webhook.Target{Repo: r.Repo, Branch: r.Branch, Path: r.Path}.Name())
 }
 
 // LogReader reads an app's output. ExecSteps implements it.

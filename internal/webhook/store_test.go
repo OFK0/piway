@@ -141,3 +141,25 @@ func TestOpenStoreRejectsBrokenFile(t *testing.T) {
 		t.Error("broken file opened")
 	}
 }
+
+func TestStorePaths(t *testing.T) {
+	s, p := openStore(t, "deploy: []\n")
+	for _, path := range []string{"apps/web", "apps/api"} {
+		if err := s.Add(Target{Repo: "o/mono", Branch: "main", Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Add(Target{Repo: "o/mono", Branch: "main", Path: "apps/web"}); !errors.Is(err, ErrExists) {
+		t.Errorf("same path twice: %v", err)
+	}
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), "path: apps/web") {
+		t.Errorf("file:\n%s", b)
+	}
+	removed, err := s.Remove("o/mono", "main", "apps/web")
+	if err != nil || len(removed) != 1 || len(s.Targets()) != 1 || s.Targets()[0].Path != "apps/api" {
+		t.Errorf("remove one path: %v %v %+v", removed, err, s.Targets())
+	}
+	if removed, _ := s.Remove("o/mono", "main"); len(removed) != 1 {
+		t.Errorf("remove the rest: %v", removed)
+	}
+}

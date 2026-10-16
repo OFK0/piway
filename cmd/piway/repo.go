@@ -22,10 +22,13 @@ import (
 
 const repoUsage = `usage: piway repo <command>
 
-  add owner/name [-branch main] [-private | -token]
-                                     deploy pushes to this repository
+  add owner/name [-branch main] [-path dir] [-private | -token]
+                                     deploy pushes to this repository; -path for
+                                     an app in a directory of it
   list                               show the repositories that deploy
-  remove owner/name [-branch main]   stop deploying it (all branches without -branch)
+  remove owner/name [-branch main] [-path dir]
+                                     stop deploying it (all branches and paths
+                                     without -branch and -path)
   test owner/name                    check that piway can read the repository
   key owner/name                     show a private repository's deploy key again
   token set | remove                 store or delete the GitHub token for -token
@@ -81,6 +84,8 @@ func (r repoCLI) command(cmd string, args []string) int {
 	fs := flag.NewFlagSet("piway repo "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	branch := fs.String("branch", "", "`branch` to deploy (add: default main; remove: default every branch)")
+	dir := fs.String("path", "", "the app's `directory` in the repository (default its root)")
+	pathSet := false
 	private := fs.Bool("private", false, "add: a private repository, read with a deploy key piway makes")
 	token := fs.Bool("token", false, "add: a private repository, read with the stored GitHub token")
 	// Flags may follow the repository: piway repo add owner/name -branch dev.
@@ -98,6 +103,8 @@ func (r repoCLI) command(cmd string, args []string) int {
 		rest = append(rest, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
+	fs.Visit(func(f *flag.Flag) { pathSet = pathSet || f.Name == "path" })
+	*dir = strings.Trim(*dir, "/")
 
 	need := func() (string, bool) {
 		if len(rest) != 1 || strings.Contains(rest[0], "://") {
@@ -119,13 +126,17 @@ func (r repoCLI) command(cmd string, args []string) int {
 			return 0
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "REPOSITORY\tBRANCH\tAUTH")
+		fmt.Fprintln(tw, "REPOSITORY\tBRANCH\tPATH\tAUTH")
 		for _, t := range targets {
 			auth := t.Auth
 			if auth == "" {
 				auth = "public"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", t.Repo, t.Branch, auth)
+			path := t.Path
+			if path == "" {
+				path = "/"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Repo, t.Branch, path, auth)
 		}
 		_ = tw.Flush()
 		return 0
@@ -150,7 +161,8 @@ func (r repoCLI) command(cmd string, args []string) int {
 		if b == "" {
 			b = "main"
 		}
-		err := r.store.Add(webhook.Target{Repo: repo, Branch: b, Auth: auth})
+		target := webhook.Target{Repo: repo, Branch: b, Path: *dir, Auth: auth}
+		err := r.store.Add(target)
 		exists := errors.Is(err, webhook.ErrExists)
 		if err != nil && !exists {
 			fmt.Fprintln(stderr, "piway:", err)
@@ -163,13 +175,13 @@ func (r repoCLI) command(cmd string, args []string) int {
 			}
 		}
 		if exists {
-			fmt.Fprintf(stdout, "%s@%s is already listed.\n", repo, b)
+			fmt.Fprintf(stdout, "%s is already listed.\n", target.Name())
 			if auth == gitauth.DeployKey {
 				return r.showKey(repo)
 			}
 			return 0
 		}
-		fmt.Fprintf(stdout, "Added %s@%s to %s.\n\n", repo, b, r.cfg.AppsFile)
+		fmt.Fprintf(stdout, "Added %s to %s.\n\n", target.Name(), r.cfg.AppsFile)
 		switch auth {
 		case gitauth.DeployKey:
 			if code := r.showKey(repo); code != 0 {
@@ -196,7 +208,13 @@ func (r repoCLI) command(cmd string, args []string) int {
 		if !ok {
 			return 2
 		}
-		removed, err := r.store.Remove(repo, *branch)
+		var removed []webhook.Target
+		var err error
+		if pathSet {
+			removed, err = r.store.Remove(repo, *branch, *dir)
+		} else {
+			removed, err = r.store.Remove(repo, *branch)
+		}
 		if errors.Is(err, webhook.ErrNotFound) {
 			fmt.Fprintf(stderr, "piway: %s is not listed (piway repo list)\n", repo)
 			return 1
@@ -206,7 +224,7 @@ func (r repoCLI) command(cmd string, args []string) int {
 			return 1
 		}
 		for _, t := range removed {
-			fmt.Fprintf(stdout, "Removed %s@%s. Its running app keeps running.\n", t.Repo, t.Branch)
+			fmt.Fprintf(stdout, "Removed %s. Its running app keeps running.\n", t.Name())
 		}
 		if removed[0].Auth == gitauth.DeployKey && !webhook.Listed(r.store.Targets(), repo) && r.access.HasKey(repo) {
 			if err := r.access.RemoveKey(repo); err != nil {

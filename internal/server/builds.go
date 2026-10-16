@@ -90,10 +90,10 @@ func deployApp(w http.ResponseWriter, r *http.Request, b Builds) {
 func deployTarget(w http.ResponseWriter, r *http.Request, b Builds) {
 	var req deploy.DeployRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Repo == "" || req.Branch == "" {
-		writeError(w, http.StatusBadRequest, `send {"repo": "owner/name", "branch": "main", "commit": optional full SHA}`)
+		writeError(w, http.StatusBadRequest, `send {"repo": "owner/name", "branch": "main", "path": optional app directory, "commit": optional full SHA}`)
 		return
 	}
-	deployNow(w, r, b, deploy.DeployRequest{Repo: req.Repo, Branch: req.Branch, Commit: req.Commit})
+	deployNow(w, r, b, deploy.DeployRequest{Repo: req.Repo, Branch: req.Branch, Path: req.Path, Commit: req.Commit})
 }
 
 func deployNow(w http.ResponseWriter, r *http.Request, b Builds, req deploy.DeployRequest) {

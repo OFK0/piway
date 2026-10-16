@@ -332,6 +332,8 @@ export type RepoAuth = 'deploy-key' | 'token'
 export interface Repo {
   repo: string
   branch: string
+  /** The app's directory in the repository; absent for its root. */
+  path?: string
   /** The app this branch became, once it has been built. */
   app?: string
   auth?: RepoAuth
@@ -359,8 +361,8 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 })
-export const addRepo = (repo: string, branch: string, auth?: RepoAuth) =>
-  repoRequest<Repo>('/api/v1/repos', jsonInit('POST', auth ? { repo, branch, auth } : { repo, branch }))
+export const addRepo = (repo: string, branch: string, auth?: RepoAuth, path?: string) =>
+  repoRequest<Repo>('/api/v1/repos', jsonInit('POST', { repo, branch, ...(auth && { auth }), ...(path && { path }) }))
 
 /** The answer to "Test access": kind and message say what to fix. */
 export interface AccessResult {
@@ -373,5 +375,5 @@ export interface AccessResult {
 export const testRepoAccess = (repo: string) =>
   repoRequest<AccessResult>('/api/v1/repos/test', jsonInit('POST', { repo }))
 export const setRepoToken = (token: string) => repoRequest('/api/v1/repos/token', jsonInit('PUT', { token }))
-export const removeRepo = (repo: string, branch: string) =>
-  repoRequest<{ key_removed?: boolean }>(`/api/v1/repos?${new URLSearchParams({ repo, branch })}`, { method: 'DELETE' })
+export const removeRepo = (repo: string, branch: string, path = '') =>
+  repoRequest<{ key_removed?: boolean }>(`/api/v1/repos?${new URLSearchParams({ repo, branch, path })}`, { method: 'DELETE' })

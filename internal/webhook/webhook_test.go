@@ -334,3 +334,20 @@ func TestConcurrentReplayIsNotQueued(t *testing.T) {
 		t.Errorf("concurrent replay: %d %+v, want 200 duplicate", code, resp)
 	}
 }
+
+func TestPushDeploysEveryPath(t *testing.T) {
+	rec := &recorder{}
+	targets := StaticTargets{
+		{Repo: "OFK0/piway", Branch: "main", Path: "examples/loadlab"},
+		{Repo: "OFK0/piway", Branch: "main", Path: "examples/chat"},
+		{Repo: "OFK0/piway", Branch: "dev", Path: "examples/other"},
+	}
+	h := New(secret, targets, rec, slog.New(slog.DiscardHandler))
+	body := pushBody("OFK0/piway", "refs/heads/main", "abc123")
+	if code, _ := send(t, h, delivery{"push", "d1", sign(secret, body), body}); code != http.StatusAccepted {
+		t.Fatalf("code %d", code)
+	}
+	if len(rec.reqs) != 2 || rec.reqs[0].Path != "examples/loadlab" || rec.reqs[1].Path != "examples/chat" {
+		t.Errorf("deploys = %+v", rec.reqs)
+	}
+}
