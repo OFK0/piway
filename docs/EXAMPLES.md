@@ -14,6 +14,7 @@ piway repo add OFK0/piway -path examples/loadlab
 | [thumbnailer](https://github.com/OFK0/piway/tree/main/examples/thumbnailer) | Python | Uploads, a background worker making thumbnails, progress over a WebSocket, expiring files | 295 MB | 35 MiB |
 | [chat](https://github.com/OFK0/piway/tree/main/examples/chat) | Node.js | Rooms over WebSocket, Redis pub/sub and history (`run.databases`), attachments | 247 MB | 36 MiB |
 | [notes](https://github.com/OFK0/piway/tree/main/examples/notes) | PHP | CRUD on MariaDB, sessions in Redis, attachments, a scheduled cleanup script | 732 MB | 13 MiB |
+| [feeds](https://github.com/OFK0/piway/tree/main/examples/feeds) | Ruby | Scheduled RSS fetching, SQLite on a volume (WAL), new items over SSE, OPML | 299 MB | 53 MiB |
 
 Each app's README has what it does, how it uses piway and what it measured
 on a Raspberry Pi 4. They share a [common contract](https://github.com/OFK0/piway/tree/main/examples#common-contract):
