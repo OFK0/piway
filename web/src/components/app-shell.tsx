@@ -1,4 +1,5 @@
-import { SignOutIcon } from '@phosphor-icons/react'
+import { DatabaseIcon, GearIcon, HouseIcon, SignOutIcon, StackIcon } from '@phosphor-icons/react'
+import type { Icon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
 import { Logo } from '@/components/logo'
@@ -9,11 +10,13 @@ import { Separator } from '@/components/ui/separator'
 import { usePathname, usePendingNavigation } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
-const nav = [
-  { href: '/', label: 'Overview', match: (p: string) => p === '/' },
-  { href: '/apps', label: 'Apps', match: (p: string) => p.startsWith('/apps') || p.startsWith('/builds') },
-  { href: '/databases', label: 'Databases', match: (p: string) => p === '/databases' },
-  { href: '/settings', label: 'Settings', match: (p: string) => p === '/settings' },
+// On a phone the links are icons: four words plus the buttons need about
+// 435 px, and a 390 px screen would slide sideways (#150).
+const nav: { href: string; label: string; icon: Icon; match: (p: string) => boolean }[] = [
+  { href: '/', label: 'Overview', icon: HouseIcon, match: (p) => p === '/' },
+  { href: '/apps', label: 'Apps', icon: StackIcon, match: (p) => p.startsWith('/apps') || p.startsWith('/builds') },
+  { href: '/databases', label: 'Databases', icon: DatabaseIcon, match: (p) => p === '/databases' },
+  { href: '/settings', label: 'Settings', icon: GearIcon, match: (p) => p === '/settings' },
 ]
 
 // Only with a password: in local mode there is nothing to sign out of.
@@ -46,7 +49,7 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
             <Logo mark className="sm:hidden" />
             <Logo className="hidden sm:block" />
           </a>
-          <nav aria-label="Main" className="ml-2 flex items-center gap-1 sm:ml-4">
+          <nav aria-label="Main" className="ml-1 flex min-w-0 items-center sm:ml-4 sm:gap-1">
             {nav.map((item) => {
               const current = item.match(pathname)
               return (
@@ -54,12 +57,14 @@ export function AppShell(props: { actions?: ReactNode; footer?: ReactNode; child
                   key={item.href}
                   href={item.href}
                   aria-current={current ? 'page' : undefined}
+                  aria-label={item.label}
                   className={cn(
-                    'px-2 py-1 type-label text-muted-foreground underline-offset-8 hover:text-foreground',
-                    current && 'text-foreground underline decoration-brand decoration-2',
+                    'flex size-9 items-center justify-center text-lg text-muted-foreground underline-offset-8 hover:text-foreground sm:size-auto sm:px-2 sm:py-1 sm:type-label',
+                    current && 'border-b-2 border-brand text-foreground sm:border-b-0 sm:underline sm:decoration-brand sm:decoration-2',
                   )}
                 >
-                  {item.label}
+                  <item.icon className="sm:hidden" aria-hidden />
+                  <span className="hidden sm:inline">{item.label}</span>
                 </a>
               )
             })}
