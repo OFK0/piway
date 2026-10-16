@@ -1,0 +1,18 @@
+piway: 1
+name: loadlab
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 8080
+  env:
+    GREETING: hello from piway.yaml
+  secrets:
+    - LOADLAB_TOKEN        # set on the app's page; /api/info shows it arrived
+  memory: 128MiB
+  cpus: 1
+  volumes:
+    - data:/data
+  health:
+    path: /healthz
