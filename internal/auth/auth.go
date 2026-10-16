@@ -199,13 +199,19 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 	})
 }
 
+// Session reports whether r comes from a signed-in browser (or from the
+// Pi itself while no password is set), not with an API token. Secret
+// values and API tokens are only for such requests.
+func (a *Auth) Session(r *http.Request) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return r.Header.Get("Authorization") == "" && a.signedInLocked(r)
+}
+
 // requireSession is Require without API tokens, for managing them.
 func (a *Auth) requireSession(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.mu.Lock()
-		ok := r.Header.Get("Authorization") == "" && a.signedInLocked(r)
-		a.mu.Unlock()
-		if !ok {
+		if !a.Session(r) {
 			writeError(w, http.StatusForbidden, "API tokens are managed from a signed-in browser, not with a token")
 			return
 		}

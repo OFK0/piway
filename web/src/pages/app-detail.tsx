@@ -8,6 +8,7 @@ import { AppShell } from '@/components/app-shell'
 import { AppStatus, isBusy } from '@/components/app-status'
 import { BuildState } from '@/components/build-state'
 import { DeploysOff } from '@/components/deploys-off'
+import { EnvCard } from '@/components/env-card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -68,6 +69,7 @@ export default function AppDetailPage({ name }: { name: string }) {
       ) : (
         <>
           <LiveCard app={app} now={now} />
+          {app.live && !app.live.site && <EnvCard app={app.name} busy={isBusy(app)} />}
           <History builds={poll.data.builds} now={now} />
         </>
       )}

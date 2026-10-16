@@ -185,6 +185,42 @@ export const rollbackApp = (name: string) =>
 export const redeployApp = (name: string) =>
   deployJSON<Build>(`/api/v1/apps/${encodeURIComponent(name)}/redeploy`, { method: 'POST' })
 
+// --- Environment (docs/API.md › /api/v1/apps/{name}/env) -------------------
+
+export interface EnvVar {
+  name: string
+  value: string
+}
+export interface AppSecret {
+  name: string
+  set: boolean
+  /** Listed in the app's run.secrets; an undeclared one is not passed to it. */
+  declared: boolean
+  /** Only for a signed-in browser, and only when set. */
+  value?: string
+}
+export interface AppEnv {
+  app: string
+  build: string
+  static: boolean
+  env: EnvVar[]
+  secrets: AppSecret[]
+  injected: EnvVar[]
+  restart_needed: boolean
+  file: string
+  values_shown: boolean
+}
+const envPath = (app: string) => `/api/v1/apps/${encodeURIComponent(app)}`
+export const fetchAppEnv = (app: string, signal?: AbortSignal) => deployJSON<AppEnv>(`${envPath(app)}/env`, { signal })
+export const setAppSecret = (app: string, name: string, value: string) =>
+  deployJSON<AppEnv>(`${envPath(app)}/secrets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  })
+export const removeAppSecret = (app: string, name: string) =>
+  deployJSON<AppEnv>(`${envPath(app)}/secrets/${encodeURIComponent(name)}`, { method: 'DELETE' })
+
 export function buildLogStreamURL(id: string, loc: { protocol: string; host: string } = window.location): string {
   return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/api/v1/builds/${encodeURIComponent(id)}/log/stream`
 }

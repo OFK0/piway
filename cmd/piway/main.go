@@ -35,6 +35,7 @@ import (
 	"github.com/ofk0/piway/internal/push"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/router"
+	"github.com/ofk0/piway/internal/secrets"
 	"github.com/ofk0/piway/internal/server"
 	"github.com/ofk0/piway/internal/stream"
 	"github.com/ofk0/piway/internal/version"
@@ -505,16 +506,18 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 	if dataDir == "" {
 		dataDir = config.DefaultDataDir()
 	}
+	secretStore := &secrets.Store{Dir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets")}
 	steps := deploy.ExecSteps{
 		Docker:     docker.New(sock),
 		Router:     routes,
 		DockerHost: "unix://" + sock,
-		SecretsDir: filepath.Join(filepath.Dir(cfg.AppsFile), "secrets"),
+		Secrets:    secretStore,
 		Git:        access,
 	}
 	opts := deploy.Options{
 		Targets: repos,
 		Git:     access,
+		Secrets: secretStore,
 		Dir:     filepath.Join(dataDir, "deploys"),
 		Steps:   steps,
 		Runtime: steps,

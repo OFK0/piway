@@ -1,7 +1,6 @@
 package deploy
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +17,7 @@ import (
 	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/manifest"
 	"github.com/ofk0/piway/internal/router"
+	"github.com/ofk0/piway/internal/secrets"
 )
 
 // ExecSteps runs builds with git, the docker CLI (BuildKit) and the Docker
@@ -27,7 +26,7 @@ type ExecSteps struct {
 	Docker     *docker.Client
 	Router     *router.Router  // owns each app's stable port
 	DockerHost string          // unix://… for the docker CLI
-	SecretsDir string          // <app>.env files with the values of run.secrets
+	Secrets    *secrets.Store  // the values of run.secrets
 	Git        *gitauth.Access // credentials for private repositories
 }
 
@@ -74,6 +73,10 @@ func (s ExecSteps) Image(ctx context.Context, m *manifest.Manifest, dir, image s
 	return s.command(ctx, out, dir, "docker", args...)
 }
 
+// LabelSecrets on a container is the digest of the secret values it was
+// started with, so the app page can tell when they changed since.
+const LabelSecrets = "piway.secrets"
+
 // HostPort is the app's stable address on 127.0.0.1, served by the router:
 // derived from the name, so it stays the same across deploys and restarts.
 // Caddy (#24) proxies to it.
@@ -96,7 +99,7 @@ const keepImages = 3
 // route to it (blue/green). If the new version never becomes healthy, it
 // is removed and the old one keeps serving.
 func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, out io.Writer) error {
-	env, err := s.env(m)
+	env, digest, err := s.env(m)
 	if err != nil {
 		return err
 	}
@@ -116,7 +119,7 @@ func (s ExecSteps) Release(ctx context.Context, m *manifest.Manifest, b Build, o
 		Image:       b.Image,
 		Cmd:         m.Run.Command,
 		Env:         env,
-		Labels:      map[string]string{"piway.commit": b.Commit, "piway.build": b.ID},
+		Labels:      map[string]string{"piway.commit": b.Commit, "piway.build": b.ID, LabelSecrets: digest},
 		Port:        m.Run.Port,
 		MemoryBytes: m.Run.MemoryBytes,
 		CPUs:        m.Run.CPUs,
@@ -251,19 +254,18 @@ func (s ExecSteps) Restore(ctx context.Context, live func(app string) (buildID s
 	return errors.Join(errs...)
 }
 
-// env is run.env plus the values of run.secrets from SecretsDir/<app>.env.
-func (s ExecSteps) env(m *manifest.Manifest) ([]string, error) {
-	var env []string
+// env is run.env plus the values of run.secrets, and the digest of
+// those values (secrets.Digest), which labels the container.
+func (s ExecSteps) env(m *manifest.Manifest) (env []string, digest string, err error) {
 	for _, v := range m.Run.Env {
 		env = append(env, v.Name+"="+v.Value)
 	}
 	if len(m.Run.Secrets) == 0 {
-		return env, nil
+		return env, "", nil
 	}
-	path := filepath.Join(s.SecretsDir, m.Name+".env")
-	values, err := readEnvFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+	values, err := s.Secrets.Values(m.Name)
+	if err != nil {
+		return nil, "", err
 	}
 	var missing []string
 	for _, name := range m.Run.Secrets {
@@ -275,33 +277,10 @@ func (s ExecSteps) env(m *manifest.Manifest) ([]string, error) {
 		env = append(env, name+"="+v)
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("secrets not set on the Pi: %s (add NAME=value lines to %s)", strings.Join(missing, ", "), path)
+		return nil, "", fmt.Errorf("secrets not set on the Pi: %s (set them on the app's page, or add NAME=value lines to %s)",
+			strings.Join(missing, ", "), s.Secrets.Path(m.Name))
 	}
-	return env, nil
-}
-
-// readEnvFile reads NAME=value lines; blank lines and # comments are
-// skipped, and the value is everything after the first '='.
-func readEnvFile(path string) (map[string]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	out := map[string]string{}
-	sc := bufio.NewScanner(f)
-	for n := 1; sc.Scan(); n++ {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		name, value, ok := strings.Cut(line, "=")
-		if !ok || name == "" || slices.Contains([]rune(name), ' ') {
-			return nil, fmt.Errorf("%s:%s: want NAME=value", path, strconv.Itoa(n))
-		}
-		out[name] = value
-	}
-	return out, sc.Err()
+	return env, secrets.Digest(m.Run.Secrets, values), nil
 }
 
 // Containers returns each app's running container: the one its route
@@ -330,7 +309,8 @@ func (s ExecSteps) Containers(ctx context.Context) (map[string]Container, error)
 		if _, ok := out[app]; ok && !served {
 			continue
 		}
-		out[app] = Container{Name: d.Name, State: d.State.Status, Image: d.Image, Started: d.State.StartedAt}
+		out[app] = Container{Name: d.Name, State: d.State.Status, Image: d.Image, Started: d.State.StartedAt,
+			SecretsDigest: d.Labels[LabelSecrets]}
 	}
 	return out, nil
 }
