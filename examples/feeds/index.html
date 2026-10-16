@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>feeds</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: 0; } p { color: GrayText; margin-top: .25rem; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; margin: .75rem 0; }
+  input[type=url] { flex: 1; min-width: 12rem; }
+  ul { padding-left: 1.25rem; } li { margin: .25rem 0; }
+  .muted { color: GrayText; font-size: .875rem; } .new { animation: hl 3s; }
+  @keyframes hl { from { background: Highlight; } }
+</style>
+</head>
+<body>
+<h1>feeds</h1>
+<p>Feeds fetched on a schedule, kept in SQLite, new items streamed here as they arrive.</p>
+<form id="add"><input id="url" type="url" placeholder="https://example.com/feed.xml" required aria-label="Feed URL"><button>Follow</button>
+  <button type="button" id="refresh">Fetch now</button> <a href="/opml">Export OPML</a></form>
+<details><summary>Feeds</summary><ul id="feeds"></ul></details>
+<h2>Items</h2>
+<ul id="items"></ul>
+<script>
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+function item(i, fresh) {
+  const li = document.createElement('li'); if (fresh) li.className = 'new'
+  li.innerHTML = `<a href="${esc(i.link)}" rel="noreferrer">${esc(i.title || i.link)}</a> <span class="muted">${esc(i.feed)}</span>`
+  return li
+}
+async function load() {
+  const feeds = await (await fetch('/api/feeds')).json()
+  $('feeds').innerHTML = feeds.map((f) => `<li>${esc(f.title || f.url)} <span class="muted">${f.items} items${f.error ? ', ' + esc(f.error) : ''}</span> <button data-id="${f.id}">Unfollow</button></li>`).join('')
+  const items = await (await fetch('/api/items?limit=50')).json()
+  $('items').replaceChildren(...items.map((i) => item(i)))
+}
+$('feeds').onclick = async (e) => { if (e.target.dataset.id) { await fetch('/api/feeds/' + e.target.dataset.id, { method: 'DELETE' }); load() } }
+$('add').onsubmit = async (e) => { e.preventDefault(); await fetch('/api/feeds', { method: 'POST', body: JSON.stringify({ url: $('url').value }) }); $('url').value = ''; load() }
+$('refresh').onclick = () => fetch('/api/refresh', { method: 'POST' })
+const events = new EventSource('/events') // reconnects by itself, to the new version after a deploy
+events.onmessage = (e) => { const ev = JSON.parse(e.data); if (ev.type === 'item') $('items').prepend(item(ev, true)); else load() }
+load()
+</script>
+</body>
+</html>
