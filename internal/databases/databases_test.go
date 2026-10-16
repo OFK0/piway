@@ -161,6 +161,10 @@ func TestBackupsListAndApps(t *testing.T) {
 	if bs[0].Time.Day() != 16 || bs[2].Time.Day() != 14 {
 		t.Errorf("not newest first: %v", bs)
 	}
+	os.MkdirAll(filepath.Join(m.BackupDir, "postgres", "gone"), 0o700) // an app whose database was dropped
+	if apps, _ := m.BackedUp("postgres"); !slices.Equal(apps, []string{"blog", "gone"}) {
+		t.Errorf("BackedUp = %v", apps)
+	}
 	m.prune("postgres", "blog", 2)
 	if bs, _ := m.Backups("postgres", "blog"); len(bs) != 2 || bs[1].Time.Day() != 15 {
 		t.Errorf("after prune: %v", bs)

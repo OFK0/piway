@@ -199,9 +199,13 @@ func run(cfg config.Config) error {
 		return err
 	}
 	access := gitauth.New(keysDir(cfg))
-	pipeline, err := openPipeline(ctx, cfg, repos, access, routes, proxy, alerts, notifier, log)
+	pipeline, dbs, err := openPipeline(ctx, cfg, repos, access, routes, proxy, alerts, notifier, log)
 	if err != nil {
 		return err
+	}
+	var dbStatus server.Databases // a true nil without Docker, like builds
+	if dbs != nil {
+		dbStatus = dbs
 	}
 	var builds server.Builds // a true nil when deploys are off (see queries)
 	var deployer webhook.Deployer = logDeployer{log}
@@ -234,7 +238,7 @@ func run(cfg config.Config) error {
 		}
 	}()
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, RepoAccess: access, WebhookSecretSet: cfg.WebhookSecret != "", UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, RepoAccess: access, Databases: dbStatus, WebhookSecretSet: cfg.WebhookSecret != "", UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)
@@ -498,16 +502,16 @@ func openProxy(ctx context.Context, cfg config.Config, routes *router.Router, lo
 	return p, nil
 }
 
-// openPipeline starts the build pipeline if a Docker daemon is reachable,
-// and returns nil (deploys off) otherwise.
-func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSource, access *gitauth.Access, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, notifier *notify.Notifier, log *slog.Logger) (*deploy.Pipeline, error) {
+// openPipeline starts the build pipeline and the database manager if a
+// Docker daemon is reachable, and returns nils (deploys off) otherwise.
+func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSource, access *gitauth.Access, routes *router.Router, proxy *caddy.Proxy, alerts *alert.Engine, notifier *notify.Notifier, log *slog.Logger) (*deploy.Pipeline, *databases.Manager, error) {
 	sock, err := docker.SocketPath(os.Getenv)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !docker.Available(sock) {
 		log.Info("deploys disabled: no Docker daemon", "socket", sock, "setup", "docs/DOCKER.md")
-		return nil, nil
+		return nil, nil, nil
 	}
 	dataDir := cfg.DataDir
 	if dataDir == "" {
@@ -554,7 +558,7 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 	}
 	p, err := deploy.New(opts)
 	if err != nil {
-		return nil, fmt.Errorf("deploys: %w", err)
+		return nil, nil, fmt.Errorf("deploys: %w", err)
 	}
 	// Apps kept running while piway was down; serve them again.
 	if err := steps.Restore(ctx, p.Live); err != nil {
@@ -566,5 +570,5 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 		}
 	}
 	log.Info("deploys enabled", "docker", sock)
-	return p, nil
+	return p, dbs, nil
 }

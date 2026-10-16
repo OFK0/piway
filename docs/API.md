@@ -377,6 +377,16 @@ when deploys are off.
 | `PUT /api/v1/repos/token` | Body `{"token": "github_pat_…"}`: stores the token for `auth: token` repositories. `204`. It is never returned. |
 | `DELETE /api/v1/repos/token` | Deletes the token. `204`. |
 
+## Databases
+
+The shared database engines ([DATABASES.md](DATABASES.md)). Both answer
+`503` without Docker.
+
+| Endpoint | Meaning |
+|---|---|
+| `GET /api/v1/databases` | `{"engines": [{"name", "state", "image", "pinned", "upgrade_available", "volume", "size_bytes", "memory_bytes", "memory_limit_bytes", "apps": [{"name", "backups", "last_backup", "last_backup_bytes"}]}]}`, one per engine. `state` is `not_started` until an app asks for the engine, else the container's state. `image` is what runs, `pinned` what new servers start from; `upgrade_available` when their major versions differ (`piway db upgrade`). Sizes are `-1` when unknown. |
+| `POST /api/v1/databases/backup` | Backs up every app's database on every running engine now, as the nightly job does. `{"done": ["postgres/blog: <file> (<bytes> bytes)", …]}`; `500` with `error` and what was `done` if any failed. |
+
 ## `GET /api/v1/stream` (WebSocket)
 
 A one-way live stream of snapshots. Each text message is exactly the body of

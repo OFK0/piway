@@ -183,6 +183,13 @@ func (f *fakeDaemon) routes() http.Handler {
 		f.connected = append(f.connected, key)
 		w.WriteHeader(200)
 	})
+	mux.HandleFunc("GET "+v+"/containers/{id}/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("stream") != "false" {
+			http.Error(w, "streaming", 400)
+			return
+		}
+		w.Write([]byte(`{"memory_stats":{"usage":50000000,"stats":{"inactive_file":8000000}}}`))
+	})
 	mux.HandleFunc("POST "+v+"/containers/{id}/start", f.transition("running"))
 	mux.HandleFunc("POST "+v+"/containers/{id}/stop", f.transition("exited"))
 	mux.HandleFunc("DELETE "+v+"/containers/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -555,5 +562,13 @@ func TestNetworks(t *testing.T) {
 		if err := c.Connect(ctx, "piway-db", id); err != nil {
 			t.Errorf("connect: %v", err)
 		}
+	}
+}
+
+func TestMemoryUsage(t *testing.T) {
+	c, _ := startFake(t)
+	used, err := c.MemoryUsage(ctx, "c1")
+	if err != nil || used != 42000000 {
+		t.Errorf("MemoryUsage = %d, %v; want usage minus inactive page cache", used, err)
 	}
 }

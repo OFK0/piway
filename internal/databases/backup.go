@@ -116,6 +116,25 @@ func (m *Manager) Apps(engine string) ([]string, error) {
 	return apps, nil
 }
 
+// BackedUp lists the apps with backups on engine, including apps whose
+// database was dropped since.
+func (m *Manager) BackedUp(engine string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(m.BackupDir, engine))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var apps []string
+	for _, ent := range entries {
+		if ent.IsDir() {
+			apps = append(apps, ent.Name())
+		}
+	}
+	return apps, nil
+}
+
 // running reports whether engine's server runs.
 func (m *Manager) running(ctx context.Context, engine string) (bool, error) {
 	st, err := m.Docker.Inspect(ctx, containerName(engine))
@@ -407,4 +426,44 @@ func (m *Manager) Nightly(ctx context.Context, at time.Duration, keep int, log f
 		err := m.BackupAll(ctx, keep, &out)
 		log(strings.TrimSpace(out.String()), err)
 	}
+}
+
+// Drop deletes app's database and user on engine, and its stored
+// password. Its backups stay. If the app still lists the engine in
+// run.databases, its next deploy makes an empty database again.
+func (m *Manager) Drop(ctx context.Context, engine, app string) error {
+	e, ok := engines[engine]
+	if !ok {
+		return fmt.Errorf("unknown database %q", engine)
+	}
+	unlock, err := m.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if ok, err := m.running(ctx, engine); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("%s: %w", engine, ErrNotRunning)
+	}
+	switch engine {
+	case "postgres":
+		err = m.exec(ctx, e, []string{"psql", "-v", "ON_ERROR_STOP=1", "-q", "-U", "postgres", "-d", "postgres"}, fmt.Sprintf(
+			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%[1]s' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS "%[1]s";
+DROP ROLE IF EXISTS "%[1]s";
+`, app))
+	case "mariadb":
+		err = m.exec(ctx, e, []string{"mariadb", "-h", "127.0.0.1", "-u", "root"},
+			fmt.Sprintf("DROP DATABASE IF EXISTS `%[1]s`;\nDROP USER IF EXISTS '%[1]s'@'%%';\n", app))
+	case "redis":
+		err = m.exec(ctx, e, []string{"redis-cli", "EVAL", clearScript, "0", app + ":*"}, "")
+		if err == nil {
+			err = m.exec(ctx, e, []string{"redis-cli"}, fmt.Sprintf("ACL DELUSER %s\nACL SAVE\n", app))
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("drop %s on %s: %w", app, engine, err)
+	}
+	return m.apps().Remove(app, passwordKey(engine))
 }
