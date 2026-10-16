@@ -1,0 +1,18 @@
+piway: 1
+name: chat
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 3000
+  env:
+    GREETING: hello from piway.yaml
+  secrets:
+    - CHAT_TOKEN
+  databases: [redis]      # piway sets REDIS_URL and REDIS_PREFIX
+  memory: 128MiB
+  volumes:
+    - data:/data
+  health:
+    path: /healthz

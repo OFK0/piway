@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chat</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: 0; } p { color: GrayText; margin-top: .25rem; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; margin: .75rem 0; }
+  input[type=text] { flex: 1; min-width: 8rem; }
+  #log { border: 1px solid GrayText; height: 22rem; overflow-y: auto; padding: .5rem; display: flex; flex-direction: column; gap: .25rem; }
+  .sys { color: GrayText; font-style: italic; }
+  .who { font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>chat</h1>
+<p>Rooms over WebSocket, messages through Redis pub/sub, history in Redis, attachments on a volume.</p>
+<form id="join"><input id="room" type="text" value="lobby" aria-label="Room"><input id="name" type="text" placeholder="your name" aria-label="Name" required><button>Join</button></form>
+<div id="log" aria-live="polite"></div>
+<form id="say"><input id="text" type="text" placeholder="message" aria-label="Message" disabled><button disabled>Send</button><input id="file" type="file" aria-label="Attachment" disabled></form>
+<script>
+const $ = (id) => document.getElementById(id)
+let ws, room, name
+function show(m) {
+  const line = document.createElement('div')
+  if (m.system) { line.className = 'sys'; line.textContent = `${m.name} ${m.text}` }
+  else {
+    const who = document.createElement('span'); who.className = 'who'; who.textContent = m.name + ': '
+    line.append(who)
+    if (m.attachment) { const a = document.createElement('a'); a.href = m.attachment; a.textContent = m.text; a.target = '_blank'; line.append(a) }
+    else line.append(m.text)
+  }
+  $('log').append(line); $('log').scrollTop = $('log').scrollHeight
+}
+$('join').onsubmit = async (e) => {
+  e.preventDefault(); ws?.close()
+  room = $('room').value.trim().toLowerCase(); name = $('name').value.trim()
+  $('log').replaceChildren()
+  for (const m of await (await fetch(`/api/rooms/${room}/history`)).json()) show(m)
+  const connect = () => {
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`)
+    ws.onmessage = (e) => show(JSON.parse(e.data))
+    ws.onclose = (e) => { if (e.code === 1001) setTimeout(connect, 1000) } // a new version took over
+  }
+  connect()
+  for (const el of document.querySelectorAll('#say *')) el.disabled = false
+}
+$('say').onsubmit = (e) => { e.preventDefault(); ws.send(JSON.stringify({ text: $('text').value })); $('text').value = '' }
+$('file').onchange = async () => {
+  const f = $('file').files[0]; if (!f) return
+  const r = await fetch(`/api/rooms/${room}/attachments`, { method: 'POST', body: f, headers: { 'X-Filename': f.name, 'X-Sender': name } })
+  if (!r.ok) alert((await r.json()).error)
+  $('file').value = ''
+}
+</script>
+</body>
+</html>
