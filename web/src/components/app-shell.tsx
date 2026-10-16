@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 const nav = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
   { href: '/apps', label: 'Apps', match: (p: string) => p.startsWith('/apps') || p.startsWith('/builds') },
+  { href: '/databases', label: 'Databases', match: (p: string) => p === '/databases' },
   { href: '/settings', label: 'Settings', match: (p: string) => p === '/settings' },
 ]
 

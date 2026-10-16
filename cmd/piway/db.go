@@ -27,6 +27,8 @@ const dbUsage = `usage: piway db <command>
   restore [-engine e] [-from file] [-yes] app
                                      replace an app's database with a backup
                                      (the newest unless -from)
+  drop [-engine e] [-yes] app        delete an app's database and user (its
+                                     backups stay)
   upgrade [-to image] [-yes] engine  move postgres, mariadb or redis to the major
                                      version this piway pins (or -to), by dump
                                      and restore; rolls back if anything fails
@@ -77,9 +79,9 @@ func runDB(args []string) int {
 func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("piway db "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	engine := fs.String("engine", "", "restore: the `engine` (postgres, mariadb or redis) when the app has several")
+	engine := fs.String("engine", "", "restore, drop: the `engine` (postgres, mariadb or redis)")
 	from := fs.String("from", "", "restore: the backup `file` (default the newest)")
-	yes := fs.Bool("yes", false, "restore, upgrade: do not ask for confirmation")
+	yes := fs.Bool("yes", false, "restore, drop, upgrade: do not ask for confirmation")
 	to := fs.String("to", "", "upgrade: the `image` to move to (default the one this piway pins)")
 	var rest []string
 	for len(args) > 0 { // flags may follow the app
@@ -109,6 +111,17 @@ func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []str
 		var out []string
 		for _, e := range databases.Names() {
 			apps, _ := m.Apps(e)
+			if slices.Contains(apps, app) {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	// backedUpOn lists the engines app has backups on, dropped or not.
+	backedUpOn := func(app string) []string {
+		var out []string
+		for _, e := range databases.Names() {
+			apps, _ := m.BackedUp(e)
 			if slices.Contains(apps, app) {
 				out = append(out, e)
 			}
@@ -147,7 +160,7 @@ func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []str
 		fmt.Fprintln(tw, "ENGINE\tAPP\tTIME\tSIZE\tFILE")
 		n := 0
 		for _, e := range databases.Names() {
-			apps, err := m.Apps(e)
+			apps, err := m.BackedUp(e)
 			if err != nil {
 				fmt.Fprintln(stderr, "piway:", err)
 				return 1
@@ -177,15 +190,15 @@ func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []str
 		}
 		e := *engine
 		if e == "" {
-			list := enginesOf(app)
+			list := backedUpOn(app)
 			switch len(list) {
 			case 0:
-				fmt.Fprintf(stderr, "piway: %s has no databases\n", app)
+				fmt.Fprintf(stderr, "piway: no backups of %s\n", app)
 				return 1
 			case 1:
 				e = list[0]
 			default:
-				fmt.Fprintf(stderr, "piway: %s has databases on %s; choose one with -engine\n", app, strings.Join(list, " and "))
+				fmt.Fprintf(stderr, "piway: %s has backups on %s; choose one with -engine\n", app, strings.Join(list, " and "))
 				return 2
 			}
 		}
@@ -207,6 +220,36 @@ func dbCommand(ctx context.Context, m *databases.Manager, cmd string, args []str
 			return 1
 		}
 		fmt.Fprintf(stdout, "Restored %s's %s database from %s. Restart the app: its page, or POST /api/v1/apps/%s/restart.\n", app, e, path, app)
+		return 0
+
+	case "drop":
+		if app == "" {
+			fmt.Fprintln(stderr, "usage: piway db drop [-engine e] [-yes] app")
+			return 2
+		}
+		list := enginesOf(app)
+		if *engine != "" {
+			if !slices.Contains(list, *engine) {
+				fmt.Fprintf(stderr, "piway: %s has no database on %s\n", app, *engine)
+				return 1
+			}
+			list = []string{*engine}
+		}
+		if len(list) == 0 {
+			fmt.Fprintf(stderr, "piway: %s has no databases\n", app)
+			return 1
+		}
+		if !*yes && !confirm(stdin, stderr, fmt.Sprintf("This deletes %s's database on %s, and its user. Backups stay (piway db list %s).\nIf the app still lists them in run.databases, its next deploy makes empty ones. Type the app's name to go on: ", app, strings.Join(list, " and "), app), app) {
+			fmt.Fprintln(stderr, "Nothing changed.")
+			return 1
+		}
+		for _, e := range list {
+			if err := m.Drop(ctx, e, app); err != nil {
+				fmt.Fprintln(stderr, "piway:", err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "Deleted %s's database on %s.\n", app, e)
+		}
 		return 0
 
 	case "upgrade":

@@ -250,6 +250,32 @@ export const fetchAppVolumes = (app: string, signal?: AbortSignal) =>
 export const removeAppVolume = (app: string, volume: string) =>
   deployJSON<unknown>(`${envPath(app)}/volumes/${encodeURIComponent(volume)}`, { method: 'DELETE' })
 
+// --- Databases (docs/API.md › /api/v1/databases) ---------------------------
+
+export interface DatabaseApp {
+  name: string
+  backups: number
+  last_backup?: string
+  last_backup_bytes?: number
+}
+export interface DatabaseEngine {
+  name: 'postgres' | 'mariadb' | 'redis'
+  /** "not_started" until an app asks for it, else the container's state. */
+  state: string
+  image?: string
+  pinned: string
+  upgrade_available: boolean
+  volume?: string
+  /** -1 when unknown. */
+  size_bytes: number
+  memory_bytes: number
+  memory_limit_bytes: number
+  apps: DatabaseApp[]
+}
+export const fetchDatabases = (signal?: AbortSignal) =>
+  deployJSON<{ engines: DatabaseEngine[] }>('/api/v1/databases', { signal }).then((r) => r.engines)
+export const backupDatabases = () => deployJSON<{ done: string[] }>('/api/v1/databases/backup', { method: 'POST' })
+
 export function buildLogStreamURL(id: string, loc: { protocol: string; host: string } = window.location): string {
   return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/api/v1/builds/${encodeURIComponent(id)}/log/stream`
 }

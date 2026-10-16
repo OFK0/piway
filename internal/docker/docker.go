@@ -319,6 +319,27 @@ func (c *Client) RemoveVolume(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/volumes/"+url.PathEscape(name), nil, nil, nil)
 }
 
+// MemoryUsage is what a running container uses now, counted as
+// docker stats does: its cgroup's usage without the page cache it could
+// give back.
+func (c *Client) MemoryUsage(ctx context.Context, id string) (int64, error) {
+	var out struct {
+		MemoryStats struct {
+			Usage int64            `json:"usage"`
+			Stats map[string]int64 `json:"stats"`
+		} `json:"memory_stats"`
+	}
+	q := url.Values{"stream": {"false"}, "one-shot": {"true"}}
+	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/stats", q, nil, &out); err != nil {
+		return 0, err
+	}
+	used := out.MemoryStats.Usage - out.MemoryStats.Stats["inactive_file"]
+	if used < 0 {
+		used = out.MemoryStats.Usage
+	}
+	return used, nil
+}
+
 // Rename gives a container another name.
 func (c *Client) Rename(ctx context.Context, id, name string) error {
 	return c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/rename", url.Values{"name": {name}}, nil, nil)

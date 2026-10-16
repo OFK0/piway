@@ -24,6 +24,11 @@ These cannot also be set in `run.env` or `run.secrets`. They show on the
 app's page under **Environment**, marked *set by piway*; the values are
 credentials, so they are masked and shown only in a signed-in browser.
 
+The dashboard's **Databases** page shows each engine: whether it runs,
+its version (and whether this piway pins a newer one), the size of its
+data, its memory, and the apps with a database on it with their latest
+backup. **Back up now** runs the nightly backup at once.
+
 ## Isolation
 
 - **PostgreSQL and MariaDB**: each app has its own database and a user that
@@ -145,4 +150,15 @@ needs the engine waits until the upgrade is done.
 
 Each engine keeps its data in a volume named after it and its major
 version, such as `piway-db-postgres-17`. Removing an app or its repository
-leaves its database, and its backups, in place.
+leaves its database, and its backups, in place. To delete a database
+for good:
+
+```sh
+piway db drop blog                  # every engine blog has a database on
+piway db drop -engine redis blog
+```
+
+It deletes the database and its user, and asks for the app's name first.
+The backups stay, so `piway db restore` can bring it back. If the app
+still lists the engine in `run.databases`, its next deploy makes an empty
+database again.

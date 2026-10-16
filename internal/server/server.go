@@ -31,6 +31,9 @@ type Deps struct {
 	Webhooks  http.Handler // GitHub webhooks (internal/webhook)
 	Builds    Builds
 	Repos     Repos // nil: the repository list is not editable
+	// Databases reports the shared database engines; nil when there is
+	// no Docker.
+	Databases Databases
 	// RepoAccess holds the credentials of private repositories; nil
 	// allows public repositories only.
 	RepoAccess RepoAccess
@@ -83,6 +86,7 @@ func New(d Deps) (http.Handler, error) {
 		session = d.Auth.Session
 	}
 	envRoutes(api, d.Builds, session)
+	databaseRoutes(api, d.Databases)
 	repoRoutes(api, d.Repos, d.RepoAccess, d.Builds, d.WebhookSecretSet)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,

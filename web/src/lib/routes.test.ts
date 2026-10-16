@@ -12,9 +12,10 @@ describe('matchRoute', () => {
     assert.deepEqual(matchRoute('/builds/20261014T185759Z-b691d31'), { page: 'build', id: '20261014T185759Z-b691d31' })
     assert.deepEqual(matchRoute('/design-system'), { page: 'design-system' })
     assert.deepEqual(matchRoute('/settings'), { page: 'settings' })
+    assert.deepEqual(matchRoute('/databases'), { page: 'databases' })
   })
   it('rejects unknown paths', () => {
-    for (const p of ['/nope', '/builds', '/apps/a/b', '/design-system/x', '/settings/x']) {
+    for (const p of ['/nope', '/builds', '/apps/a/b', '/design-system/x', '/settings/x', '/databases/x']) {
       assert.deepEqual(matchRoute(p), { page: 'not-found' }, p)
     }
   })

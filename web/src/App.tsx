@@ -37,6 +37,7 @@ const pages = {
   apps: onDemand(() => import('@/pages/apps')),
   app: onDemand(() => import('@/pages/app-detail')),
   build: onDemand(() => import('@/pages/build')),
+  databases: onDemand(() => import('@/pages/databases')),
   settings: onDemand(() => import('@/pages/settings')),
 }
 
@@ -60,6 +61,7 @@ const { Page: AppsPage } = pages.apps
 const { Page: AppDetailPage } = pages.app
 const { Page: BuildPage } = pages.build
 const { Page: SettingsPage } = pages.settings
+const { Page: DatabasesPage } = pages.databases
 
 function Page() {
   const route: Route = matchRoute(usePathname())
@@ -75,6 +77,7 @@ function Page() {
       {route.page === 'app' && <AppDetailPage key={route.name} name={route.name} />}
       {route.page === 'build' && <BuildPage key={route.id} id={route.id} />}
       {route.page === 'settings' && <SettingsPage />}
+      {route.page === 'databases' && <DatabasesPage />}
     </Suspense>
   )
 }
