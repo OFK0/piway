@@ -11,8 +11,9 @@ the fixtures of piway's end-to-end tests (#113).
 | [thumbnailer](thumbnailer) | Python | Uploads, a background worker making thumbnails, progress over a WebSocket, expiring files |
 | [chat](chat) | Node.js | Rooms over WebSocket, Redis pub/sub and history (`run.databases`), attachments |
 | [notes](notes) | PHP | CRUD on MariaDB, sessions in Redis, attachments, a scheduled cleanup script |
+| [feeds](feeds) | Ruby | Scheduled RSS fetching, SQLite on a volume (WAL), new items over SSE, OPML |
 
-More are on the way (#112): Ruby feeds, Java reports, Clojure events and a static docs site.
+More are on the way (#112): Java reports, Clojure events and a static docs site.
 
 ## Common contract
 

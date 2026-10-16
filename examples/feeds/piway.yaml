@@ -1,0 +1,18 @@
+piway: 1
+name: feeds
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 4567
+  env:
+    GREETING: hello from piway.yaml
+    FETCH_EVERY: "600"     # seconds
+  secrets:
+    - FEEDS_TOKEN
+  memory: 192MiB
+  volumes:
+    - data:/data           # feeds.db, SQLite in WAL mode
+  health:
+    path: /healthz
