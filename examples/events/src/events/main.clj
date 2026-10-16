@@ -38,8 +38,15 @@
 (def incoming (a/chan (a/buffer 10000)))
 
 ;; The aggregator's state: per-second buckets of the last five minutes, and
-;; running totals (restored from the last snapshot).
-(def state (atom {:buckets (sorted-map) :totals {:events 0 :by-type {}} :started (str (Instant/now))}))
+;; the totals: :base, handed over by the previous version through the
+;; snapshot, plus :own, what this instance counted.
+(def instance (str (java.util.UUID/randomUUID)))
+(def no-totals {:events 0 :by-type {}})
+(def state (atom {:buckets (sorted-map) :base no-totals :own no-totals :started (str (Instant/now))}))
+
+(defn totals [{:keys [base own]}]
+  {:events (+ (:events base) (:events own))
+   :by-type (merge-with + (:by-type base) (:by-type own))})
 (def latest (atom {}))
 
 (defn clean-type
@@ -58,8 +65,8 @@
                       :sum (+ sum (or v 0.0))
                       :mn (if v (if mn (min mn v) v) mn)
                       :mx (if v (if mx (max mx v) v) mx)}))
-        (update-in [:totals :events] inc)
-        (update-in [:totals :by-type type] (fnil inc 0)))))
+        (update-in [:own :events] inc)
+        (update-in [:own :by-type type] (fnil inc 0)))))
 
 (defn window-stats [buckets from]
   (reduce (fn [acc [_ by-type]]
@@ -72,11 +79,11 @@
                     acc by-type))
           {} (subseq buckets >= from)))
 
-(defn stats [{:keys [buckets totals started]}]
+(defn stats [{:keys [buckets started] :as st}]
   (let [now (now-s)]
     {:time (str (Instant/now))
      :since started
-     :totals totals
+     :totals (totals st)
      :windows (into {}
                     (for [[label secs] windows]
                       (let [per-type (window-stats buckets (- now secs))
@@ -111,20 +118,46 @@
             (recur tick))))))
 
 (defn write-snapshot!
-  "Writes the totals (and the start time) as EDN, atomically."
-  []
-  (let [tmp (io/file data-dir "snapshot.edn.tmp")]
-    (spit tmp (pr-str (select-keys @state [:totals :started])))
+  "Writes the totals, the start time and who wrote them as EDN, atomically.
+  final? marks the last one an instance writes, at shutdown."
+  [final?]
+  (let [tmp (io/file data-dir (str "snapshot.edn." instance ".tmp"))]
+    (spit tmp (pr-str {:totals (totals @state) :started (:started @state) :instance instance :final final?}))
     (try
       (Files/move (.toPath tmp) (.toPath snapshot-file) (into-array [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
       (catch AtomicMoveNotSupportedException _
         (Files/move (.toPath tmp) (.toPath snapshot-file) (into-array [StandardCopyOption/REPLACE_EXISTING]))))))
 
-(defn load-snapshot! []
+(defn read-snapshot []
   (when (.exists snapshot-file)
-    (let [snap (edn/read-string (slurp snapshot-file))]
-      (swap! state merge (select-keys snap [:totals :started]))
-      (log "restored snapshot" :events (get-in snap [:totals :events])))))
+    (edn/read-string (slurp snapshot-file))))
+
+;; Handing the totals over during a deploy. The new version starts while
+;; the old one still runs and counts, and the old one writes its final
+;; snapshot only when it stops, after piway switched traffic. So a new
+;; version that finds a snapshot that is not final waits for the final
+;; one (up to two minutes), writes none of its own meanwhile (it would
+;; overwrite the old one's), and then takes it as its base.
+(def handed-over (atom true))
+
+(defn take-over! [snap]
+  (swap! state assoc :base (:totals snap) :started (:started snap))
+  (reset! handed-over true)
+  (log "took over the totals" :events (get-in snap [:totals :events]) :from (:instance snap) :final (:final snap)))
+
+(defn load-snapshot! []
+  (when-let [snap (read-snapshot)]
+    (take-over! snap)
+    (when-not (:final snap)
+      (reset! handed-over false)
+      (a/go-loop [tries 60]
+        (a/<! (a/timeout 2000))
+        (let [snap (read-snapshot)]
+          (cond
+            (and (:final snap) (not= instance (:instance snap))) (take-over! snap)
+            (zero? tries) (do (reset! handed-over true)
+                              (log "no final snapshot from the previous version; keeping the last one"))
+            :else (recur (dec tries))))))))
 
 (defn json-response [status body]
   {:status status :headers {"Content-Type" "application/json"} :body (json/write-str body)})
@@ -187,7 +220,10 @@
   (aggregator)
   (let [port (parse-long (or (System/getenv "PORT") "8080"))
         stop (http/run-server handler {:port port :thread 4 :legacy-return-value? false})
-        snapshots (a/go-loop [] (a/<! (a/timeout 30000)) (write-snapshot!) (recur))]
+        snapshots (a/go-loop []
+                    (a/<! (a/timeout 30000))
+                    (when @handed-over (write-snapshot! false))
+                    (recur))]
     ;; SIGTERM: stop taking requests (letting those in flight finish, up to
     ;; 5 s), close the WebSockets, and write a last snapshot for the next
     ;; version to start from.
@@ -197,6 +233,6 @@
                                  (doseq [c @clients] (http/close c))
                                  (http/server-stop! stop {:timeout 5000})
                                  (a/close! snapshots)
-                                 (write-snapshot!)
-                                 (log "snapshot written" :events (get-in @state [:totals :events])))))
+                                 (write-snapshot! true)
+                                 (log "final snapshot written" :events (:events (totals @state))))))
     (log "listening" :port port :data data-dir)))
