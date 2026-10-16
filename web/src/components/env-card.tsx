@@ -1,5 +1,5 @@
 import { ArrowsClockwiseIcon, EyeIcon, EyeSlashIcon, PencilSimpleIcon, PlusIcon, TrashIcon, WarningIcon } from '@phosphor-icons/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { fetchAppEnv, removeAppSecret, restartApp, setAppSecret, type AppEnv, type AppSecret, type InjectedVar } from '@/api'
@@ -31,10 +31,14 @@ const validName = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
 
 // An app's environment: run.env from piway.yaml, and its secrets, which a
 // signed-in browser can see and set. Changes apply on the next restart.
-export function EnvCard({ app, busy }: { app: string; busy: boolean }) {
+export function EnvCard({ app, busy, onLoaded }: { app: string; busy: boolean; onLoaded?: () => void }) {
   const load = useCallback((signal: AbortSignal) => fetchAppEnv(app, signal), [app])
   const poll = usePoll(load, 15_000)
   const env = poll.data
+  const answered = env != null || poll.error != null
+  useEffect(() => {
+    if (answered) onLoaded?.()
+  }, [answered, onLoaded])
   const [restarting, setRestarting] = useState(false)
 
   const restart = async () => {

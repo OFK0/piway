@@ -140,8 +140,23 @@ func (r *Router) listen(app string, port int, b *backend) error {
 	return nil
 }
 
+// appTransport is how the router talks to apps. httputil.ReverseProxy's
+// default keeps 2 idle connections per host, so under steady traffic it
+// opens and closes connections all the time, and the sockets in TIME_WAIT
+// fill the port range the kernel hands out to outgoing connections, which
+// Docker also draws an app's host port from: a deploy then fails with
+// "address already in use" (found by the e2e traffic test). A larger pool
+// reuses connections instead.
+var appTransport = &http.Transport{
+	DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+	MaxIdleConns:        512,
+	MaxIdleConnsPerHost: 64,
+	IdleConnTimeout:     30 * time.Second,
+}
+
 func (r *Router) proxy(app string, target *url.URL) http.Handler {
 	return &httputil.ReverseProxy{
+		Transport: appTransport,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			pr.SetXForwarded()

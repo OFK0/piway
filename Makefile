@@ -3,7 +3,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/ofk0/piway/internal/version.Version=$(VERSION) \
            -X github.com/ofk0/piway/internal/version.Commit=$(COMMIT)
 
-.PHONY: build build-go dist notices web web-lint web-test run test test-race lint fmt clean pi install deploy-pi check-pi
+.PHONY: build build-go dist notices web web-lint web-test run test test-race e2e e2e-deps lint fmt clean pi install deploy-pi check-pi
 
 # build: the dashboard first, then a binary that embeds it (internal/webui).
 # build-go: the binary alone, serving the API only (no Node needed).
@@ -97,9 +97,23 @@ test:
 test-race:
 	go test -race ./...
 
+# e2e: the real binary against real Docker, with the example apps built from
+# local git repositories and deployed by signed webhooks (e2e/README.md).
+# It needs Docker, git, and for the dashboard checks `make e2e-deps`; it
+# takes 20 to 40 minutes, most of it building images. Select scenarios with
+# E2E_RUN, such as E2E_RUN='TestE2E/(deploy-loadlab|traffic)$$'.
+E2E_RUN ?= TestE2E
+e2e: build
+	cd e2e && go test -tags e2e -count=1 -timeout 120m -v -run '$(E2E_RUN)' .
+
+# e2e-deps: Playwright and its Chromium, for the dashboard checks.
+e2e-deps:
+	cd e2e/dashboard && npm ci && npx playwright install --with-deps chromium
+
 lint:
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && echo "gofmt needed" && exit 1)
 	go vet ./...
+	go vet -tags e2e ./e2e/...
 
 fmt:
 	gofmt -w .

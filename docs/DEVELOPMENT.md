@@ -54,6 +54,11 @@ make web-lint     # dashboard lint (oxlint)
 ```
 
 Run all four checks before committing ([CONTRIBUTING.md](../CONTRIBUTING.md)).
+`make e2e` runs the end-to-end suite: the real binary against real Docker,
+with the example apps deployed by signed webhooks ([e2e/README.md](../e2e/README.md)).
+It takes 20 to 40 minutes, so CI runs it before every release rather than on
+every push.
+
 `make test-race` runs the tests with the race detector; it needs a 48-bit
 address space, so it fails on Raspberry Pi OS kernels and runs in CI
 instead.

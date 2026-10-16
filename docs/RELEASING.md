@@ -19,7 +19,12 @@ git tag -a v0.2.0 -m "v0.2.0"
 git push origin v0.2.0
 ```
 
-The workflow then, on a native arm64 runner:
+The end-to-end suite ([e2e/README.md](../e2e/README.md)) is not part of the
+release: it takes 20 to 40 minutes. Run it before tagging when the release
+touches deploys, the router or the dashboard: `make e2e` on a machine with
+Docker, or **e2e**, *Run workflow* in the Actions tab.
+
+The workflow, on a native arm64 runner:
 
 1. Checks that the tag is a version and points at a commit on `main`.
 2. Runs every check: `make lint test-race web-lint web-test`.
@@ -36,7 +41,7 @@ the tag (`git push --delete origin v0.2.0 && git tag -d v0.2.0`) and tag again.
 
 Pull requests that change `release.yml` or the `Makefile` run steps 2–4 as
 a dry run with version `v0.0.0-dryrun`, so the pipeline is tested before a
-real tag needs it.
+real tag needs it. The dry run leaves the end-to-end suite out.
 
 ## Reproducible archives
 

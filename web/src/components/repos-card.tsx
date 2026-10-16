@@ -10,7 +10,7 @@ import {
   WarningCircleIcon,
   WarningIcon,
 } from '@phosphor-icons/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -58,10 +58,14 @@ const providerOf = (r: Pick<Repo, 'provider'>): Provider => (r.provider === 'git
 const providerName: Record<Provider, string> = { github: 'GitHub', gitlab: 'GitLab' }
 
 // The repositories that deploy on push (apps.yaml), editable without a restart.
-export function ReposCard({ onChange }: { onChange?: () => void }) {
+export function ReposCard({ onChange, onLoaded }: { onChange?: () => void; onLoaded?: () => void }) {
   const load = useCallback((signal: AbortSignal) => fetchRepos(signal), [])
   const repos = usePoll(load, 10_000)
   const data = repos.data
+  const answered = data != null || repos.error != null
+  useEffect(() => {
+    if (answered) onLoaded?.()
+  }, [answered, onLoaded])
 
   const changed = () => {
     repos.reload()
