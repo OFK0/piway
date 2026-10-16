@@ -144,7 +144,7 @@ Everything is in [`docs/`](docs), and on the
 | [Install](docs/INSTALL.md) | [Docker](docs/DOCKER.md) | [Configuration](docs/CONFIG.md) |
 | [Deploy an app](docs/DEPLOY.md) | [Publishing apps](docs/PROXY.md) | [HTTP API and metrics](docs/API.md) |
 | [App manifest](docs/MANIFEST.md) | [Remote access](docs/REMOTE.md) | [Storage](docs/STORAGE.md) |
-| | [Hardening the Pi](docs/HARDENING.md) | [Development](docs/DEVELOPMENT.md) |
+| [Backups](docs/BACKUP.md) | [Hardening the Pi](docs/HARDENING.md) | [Development](docs/DEVELOPMENT.md) |
 | | [Alerts and notifications](docs/ALERTS.md) | [Releasing](docs/RELEASING.md) |
 | | [Claude Code (MCP)](docs/MCP.md) | [Roadmap](docs/ROADMAP.md) |
 
