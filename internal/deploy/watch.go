@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -104,36 +105,56 @@ func (s ExecSteps) Watch(ctx context.Context, live func(app string) string, onCr
 	}
 }
 
-// Reconcile points the route of app (every app when "") at the port its
-// live container is published on now, if that changed. Apps whose live
-// container does not run are left alone: Docker is restarting it, or a
-// deploy is replacing it.
+// Reconcile repairs the route of app (every app when "") when it points
+// at an address no running container of the app has any more, as after
+// Docker restarted a crashed container on a new port: it points it at the
+// live build's container. A route that points at any running container of
+// the app is left alone: a release moves it to a new container before the
+// build counts as live, and must not be undone.
 func (s ExecSteps) Reconcile(ctx context.Context, live func(app string) string, only string, log *slog.Logger) {
 	all, err := s.Docker.List(ctx)
 	if err != nil {
 		log.Warn("reconcile routes", "err", err)
 		return
 	}
+	type candidate struct {
+		ports   []string // targets of the app's running containers
+		live    string   // the live build's container's target
+		restart int
+	}
+	apps := map[string]*candidate{}
 	for _, c := range all {
 		app := c.App()
-		if (only != "" && app != only) || c.State != "running" || c.Labels["piway.build"] != live(app) {
+		if (only != "" && app != only) || c.State != "running" {
 			continue
 		}
 		d, err := s.Docker.Details(ctx, c.ID)
 		if err != nil {
 			continue
 		}
+		cand := apps[app]
+		if cand == nil {
+			cand = &candidate{}
+			apps[app] = cand
+		}
 		for _, port := range d.Ports {
 			target := fmt.Sprintf("http://127.0.0.1:%d", port)
-			if s.Router.Target(app) == target {
-				break
+			cand.ports = append(cand.ports, target)
+			if c.Labels["piway.build"] == live(app) {
+				cand.live, cand.restart = target, d.RestartCount
 			}
-			if err := s.Router.Set(app, HostPort(app), target); err != nil {
-				log.Warn("reroute", "app", app, "err", err)
-				break
-			}
-			log.Info("rerouted to the restarted container", "app", app, "target", target, "restarts", d.RestartCount)
 			break
 		}
+	}
+	for app, cand := range apps {
+		current := s.Router.Target(app)
+		if cand.live == "" || current == "" || slices.Contains(cand.ports, current) {
+			continue
+		}
+		if err := s.Router.Set(app, HostPort(app), cand.live); err != nil {
+			log.Warn("reroute", "app", app, "err", err)
+			continue
+		}
+		log.Info("rerouted to the restarted container", "app", app, "from", current, "to", cand.live, "restarts", cand.restart)
 	}
 }
