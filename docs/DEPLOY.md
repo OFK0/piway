@@ -334,7 +334,8 @@ deleted there once no container uses it. piway never deletes a volume on
 its own: removing the repository or the app leaves its volumes in place.
 
 With rootless Docker the files belong to the user piway runs as, under
-`~/.local/share/docker/volumes/`. Backing up volumes is #110's next step.
+`~/.local/share/docker/volumes/`. `piway backup` includes every volume
+([BACKUP.md](BACKUP.md)).
 
 #### SQLite
 
@@ -352,9 +353,9 @@ SQLite works well on a volume, with two rules:
   version needs them. A rollback runs the previous image against the
   current schema, so the same rule keeps rollbacks safe.
 
-Do not copy a live database file to back it up: use SQLite's own
-`.backup` (or `VACUUM INTO`), which takes a consistent copy while the app
-runs.
+Do not copy a live database file to back it up. `piway backup` copies
+SQLite databases with SQLite's online backup, which is consistent while
+the app runs ([BACKUP.md](BACKUP.md#sqlite-databases)).
 
 ### Limits
 

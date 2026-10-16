@@ -53,6 +53,10 @@ func main() {
 		switch os.Args[1] {
 		case "mcp":
 			os.Exit(runMCP(os.Args[2:]))
+		case "backup":
+			os.Exit(runBackup(os.Args[2:]))
+		case "restore":
+			os.Exit(runRestore(os.Args[2:]))
 		case "doctor":
 			os.Exit(runDoctor(os.Args[2:]))
 		case "repo":
