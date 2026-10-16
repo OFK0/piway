@@ -11,10 +11,9 @@ make e2e E2E_RUN='TestE2E/(deploy-loadlab|traffic)$'   # some scenarios
 ```
 
 It needs Docker, git, and for the dashboard checks `make e2e-deps`
-(Playwright and Chromium). CI runs it on `ubuntu-24.04-arm` before every
-release (`.github/workflows/e2e.yml`, called by `release.yml`; a failure
-stops the release), on pull requests that change it, and by hand
-(`workflow_dispatch`).
+(Playwright and Chromium). It is not part of CI or of the release, since it
+takes this long. Run it locally, or by hand on `ubuntu-24.04-arm` with
+*Run workflow* on the **e2e** workflow (`.github/workflows/e2e.yml`).
 
 ## Scenarios
 
@@ -31,7 +30,7 @@ earlier ones deployed. `-run 'TestE2E/<name>'` selects them.
 | `db-mariadb` | A note in the PHP app is backed up (`piway db backup`), deleted, and restored (`piway db restore`) (#114). |
 | `db-redis` | The same for the chat app's history in Redis. |
 | `kill9` | `kill -9` of piway leaves the apps running; the next piway serves them again, keeps its builds, and can deploy. |
-| `private-repo` | A private repository deploys over SSH with a deploy key (#108). Skipped unless `E2E_PRIVATE_REPO` (`owner/name`, with a `piway.yaml` at its root, on `main`) and `E2E_DEPLOY_KEY` (the private key, with the public half added as a read-only deploy key) are set. In CI they are repository secrets; without them the scenario is skipped, so a run without secrets (a fork's pull request) does not exercise private repositories. |
+| `private-repo` | A private repository deploys over SSH with a deploy key (#108). Skipped unless `E2E_PRIVATE_REPO` (`owner/name`, with a `piway.yaml` at its root, on `main`) and `E2E_DEPLOY_KEY` (the private key, with the public half added as a read-only deploy key) are set. In the workflow they are repository secrets; without them the scenario is skipped. |
 | `dashboard` | `dashboard/check.mjs`, with Playwright, against the running piway: page changes keep the document (no reload), skeletons show while data loads, numbers glide and jump with reduced motion, and no page shifts its layout (CLS under 0.02) while live data arrives. |
 
 A missing Docker daemon or dashboard dependencies skips the run locally but

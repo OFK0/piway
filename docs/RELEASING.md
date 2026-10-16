@@ -19,17 +19,12 @@ git tag -a v0.2.0 -m "v0.2.0"
 git push origin v0.2.0
 ```
 
-The workflow first runs the end-to-end suite on a native arm64 runner
-(`e2e.yml`, [e2e/README.md](../e2e/README.md)): every example app deployed
-from a local git repository, zero failed requests during a redeploy,
-rollback, secrets, volumes, `kill -9`, databases and the dashboard in a
-browser. If it fails, nothing below runs and nothing is published. It also
-runs on pull requests that change it, and by hand from the Actions tab
-(**e2e**, *Run workflow*). If the repository has the secrets
-`E2E_PRIVATE_REPO` and `E2E_DEPLOY_KEY`, it also deploys a private
-repository with a deploy key.
+The end-to-end suite ([e2e/README.md](../e2e/README.md)) is not part of the
+release: it takes 20 to 40 minutes. Run it before tagging when the release
+touches deploys, the router or the dashboard: `make e2e` on a machine with
+Docker, or **e2e**, *Run workflow* in the Actions tab.
 
-Then, on a native arm64 runner:
+The workflow, on a native arm64 runner:
 
 1. Checks that the tag is a version and points at a commit on `main`.
 2. Runs every check: `make lint test-race web-lint web-test`.

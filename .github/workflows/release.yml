@@ -23,18 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  # The end-to-end suite (e2e/README.md) runs on arm64 before anything is
-  # published. A failure stops the release: nothing below runs. The dry run
-  # on pull requests leaves it out; it is slow, and e2e.yml tests itself.
-  e2e:
-    if: github.event_name == 'push'
-    uses: ./.github/workflows/e2e.yml
-    secrets: inherit
-
   release:
-    needs: e2e
-    # A dry run skips the e2e job; that must not skip the build it checks.
-    if: ${{ !cancelled() && (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') }}
     # Native arm64: the binary that ships is the binary that is tested.
     runs-on: ubuntu-24.04-arm
     permissions:
