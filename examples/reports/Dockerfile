@@ -1,11 +1,12 @@
 # Build with Maven, run on a JRE. The dependency layer is cached, so later
-# builds only compile the app.
+# builds mostly compile the app (go-offline misses a few artifacts, which
+# the package step fetches, so it is not run offline).
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 COPY src src
-RUN mvn -B -q -o package -DskipTests
+RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
