@@ -269,8 +269,22 @@ directory; no container keeps running for it.
 
 Files are served with `Content-Type` from their extension, `Last-Modified`,
 range requests and `index.html` for directories. With `static.spa: true`,
-a `GET` for a path that does not exist gets `/index.html`, for apps that
-route in the browser. Otherwise it is a `404`.
+a `GET` for a *page* that does not exist gets `/index.html`, for apps that
+route in the browser. A page is a path without a file extension
+(`/about`, `/apps/chat`) from a client that takes any type, or any path
+from a browser navigation (a request that accepts `text/html`, so
+`/docs/v1.2` works too). A missing file such as `/assets/old.js` or
+`/logo.png`, and a request that wants JSON, is a `404`: a stale tab asking
+for last deploy's script gets an error it can show, not HTML it fails to
+run. Without `spa`, every missing path is a `404`.
+
+Caching: files whose name carries a content hash, which build tools put
+there (`index-BIy_QpcH.js`, `main.3f2a9c1d.js`), never change, and are sent
+with `Cache-Control: public, max-age=31536000, immutable`. HTML and every
+other file get `Cache-Control: no-cache`: the browser asks each time and
+gets a `304` when the file did not change (`Last-Modified`), so a deploy
+shows at once. A long plain word in a name (`normalize-document.css`) or a
+date (`photo-2024-05-01.jpg`) is not taken for a hash.
 
 ### Health checks
 
