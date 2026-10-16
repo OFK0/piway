@@ -72,7 +72,7 @@ export function ReposCard({ onChange }: { onChange?: () => void }) {
         <CardAction>
           <AddRepo
             onAdded={changed}
-            webhookURL={data ? location.origin + data.webhook.path : null}
+            webhookURL={data ? (data.webhook.url ?? '') : null}
             privateAvailable={data?.private?.available ?? false}
             tokenSet={data?.private?.token_set ?? false}
           />
@@ -397,7 +397,25 @@ function AddRepo({
     }
   }
 
-  const webhook = webhookURL && (
+  // webhookURL is the address GitHub reaches piway at, as piway found it; ''
+  // when it knows none (null: still loading). The address the dashboard was
+  // opened at is not offered: it is often tailnet-only, which GitHub cannot
+  // reach (#140).
+  const webhook =
+    webhookURL === '' ? (
+      <Alert>
+        <WarningIcon />
+        <AlertTitle>piway does not know a public address</AlertTitle>
+        <AlertDescription>
+          GitHub must be able to reach piway to send pushes, and the address you opened the dashboard at may not be
+          public. Publish the webhook (for example with Tailscale Funnel, see docs/REMOTE.md) and piway finds the
+          address, or set <code className="type-code">webhook_url</code> in its config. Then add a webhook on the
+          repository with that address, content type <code className="type-code">application/json</code>, the same
+          secret as <code className="type-code">webhook_secret</code>, and the push event.
+        </AlertDescription>
+      </Alert>
+    ) : (
+      webhookURL && (
     <Field>
       <FieldLabel>Payload URL</FieldLabel>
       <div className="flex gap-2">
@@ -408,11 +426,12 @@ function AddRepo({
       </div>
       <FieldDescription>
         Content type <code className="type-code">application/json</code>, the same secret as piway's{' '}
-        <code className="type-code">webhook_secret</code>, and the push event. The address must be reachable from
-        GitHub; <code className="type-code">localhost</code> is not.
+        <code className="type-code">webhook_secret</code>, and the push event. This is the address GitHub reaches
+        piway at, not the one you opened this dashboard at.
       </FieldDescription>
     </Field>
-  )
+      )
+    )
 
   return (
     <Dialog open={open} onOpenChange={reset}>

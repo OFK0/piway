@@ -234,3 +234,39 @@ func TestReposPath(t *testing.T) {
 		t.Errorf("after delete: %s", w.Body)
 	}
 }
+
+func TestReposWebhookURL(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "apps.yaml")
+	store, err := webhook.OpenStore(file, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		find      func(context.Context) (string, string)
+		url, from string
+	}{
+		"found": {func(context.Context) (string, string) {
+			return "https://pi.example.ts.net:10000/api/v1/webhooks/github", "tailscale funnel"
+		}, "https://pi.example.ts.net:10000/api/v1/webhooks/github", "tailscale funnel"},
+		"none":      {func(context.Context) (string, string) { return "", "" }, "", ""},
+		"no finder": {nil, "", ""},
+	} {
+		h, err := New(Deps{Snapshots: stubSource{}, Repos: store, WebhookURL: tc.find})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Webhook struct {
+				URL       string `json:"url"`
+				URLSource string `json:"url_source"`
+			}
+		}
+		w := call(h, "GET", "/api/v1/repos", "")
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Webhook.URL != tc.url || got.Webhook.URLSource != tc.from {
+			t.Errorf("%s: %+v, want %q from %q", name, got.Webhook, tc.url, tc.from)
+		}
+	}
+}

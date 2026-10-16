@@ -69,6 +69,8 @@ headers, such as Caddy.
 
 - **GitHub webhooks** cannot reach the Pi through the tailnet. Deploys
   from `git push` need a public path to `/api/v1/webhooks/github` only,
-  for example `tailscale funnel`.
+  for example `tailscale funnel` on its own port; piway finds that address
+  and shows it when you add a repository
+  ([DEPLOY.md](DEPLOY.md#3-add-the-webhook-on-github)).
 - **Apps** published through Caddy ([PROXY.md](PROXY.md)) are reachable
   on the LAN, not over the tailnet.

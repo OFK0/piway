@@ -33,6 +33,7 @@ import (
 	"github.com/ofk0/piway/internal/mcp"
 	"github.com/ofk0/piway/internal/mdns"
 	"github.com/ofk0/piway/internal/notify"
+	"github.com/ofk0/piway/internal/publicurl"
 	"github.com/ofk0/piway/internal/push"
 	"github.com/ofk0/piway/internal/recorder"
 	"github.com/ofk0/piway/internal/router"
@@ -237,8 +238,9 @@ func run(cfg config.Config) error {
 			log.Error("save API tokens", "err", err)
 		}
 	}()
+	finder := &publicurl.Finder{Configured: cfg.WebhookURL, Addr: cfg.Addr, Path: "/api/v1/webhooks/github"}
 	handler, err := server.New(server.Deps{
-		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, RepoAccess: access, Databases: dbStatus, WebhookSecretSet: cfg.WebhookSecret != "", UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
+		Snapshots: ag, Live: live, History: queries, Webhooks: hooks, Builds: builds, Repos: repos, RepoAccess: access, Databases: dbStatus, WebhookSecretSet: cfg.WebhookSecret != "", WebhookURL: finder.URL, UI: ui, Auth: guard, Alerts: alerts, Push: pusher,
 	})
 	if err != nil {
 		return fmt.Errorf("dashboard: %w", err)

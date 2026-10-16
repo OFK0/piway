@@ -54,7 +54,7 @@ type accessResult struct {
 
 const webhookPath = "/api/v1/webhooks/github"
 
-func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, webhookSecretSet bool) {
+func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, webhookSecretSet bool, publicURL func(context.Context) (string, string)) {
 	if repos == nil {
 		return
 	}
@@ -67,7 +67,7 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 		return e
 	}
 
-	mux.HandleFunc("GET /api/v1/repos", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v1/repos", func(w http.ResponseWriter, r *http.Request) {
 		apps := map[string]string{}
 		if b != nil {
 			for _, t := range b.Targets() {
@@ -78,12 +78,20 @@ func repoRoutes(mux *http.ServeMux, repos Repos, access RepoAccess, b Builds, we
 		for _, t := range repos.Targets() {
 			out = append(out, entry(t, apps[targetKey(t.Repo, t.Branch, t.Path)]))
 		}
+		// The address GitHub reaches the endpoint at: not the one the
+		// dashboard was opened at, which is often tailnet-only (#140).
+		var url, source string
+		if publicURL != nil {
+			url, source = publicURL(r.Context())
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"repos": out,
 			"webhook": map[string]any{
 				"path":       webhookPath,
 				"configured": webhookSecretSet,
+				"url":        url,    // "" when piway knows no public address
+				"url_source": source, // "config" or "tailscale funnel"
 			},
 			"private": map[string]any{
 				"available": access != nil,

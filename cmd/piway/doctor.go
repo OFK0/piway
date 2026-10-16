@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
+	"strings"
 	"time"
 
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/gitauth"
+	"github.com/ofk0/piway/internal/publicurl"
 	"github.com/ofk0/piway/internal/setup"
 	"github.com/ofk0/piway/internal/webhook"
 )
@@ -83,5 +86,23 @@ func doctorEnv() setup.Env {
 	env.Config, env.ConfigFile = loaded.Config, loaded.File
 	env.Repos, env.ReposErr = webhook.LoadTargets(loaded.Config.AppsFile)
 	env.TestRepo = gitauth.New(keysDir(loaded.Config)).Test
+	finder := &publicurl.Finder{Configured: loaded.Config.WebhookURL, Addr: loaded.Config.Addr, Path: "/api/v1/webhooks/github"}
+	env.WebhookURL = func(ctx context.Context) string { u, _ := finder.URL(ctx); return u }
+	if _, err := exec.LookPath("gh"); err == nil {
+		env.Hooks = githubHooks
+	}
 	return env
+}
+
+// githubHooks lists the payload URLs of repo's webhooks with the gh CLI.
+func githubHooks(ctx context.Context, repo string) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "api", "repos/"+repo+"/hooks", "--jq", ".[].config.url").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return nil, errors.New(strings.TrimSpace(strings.SplitN(string(ee.Stderr), "\n", 2)[0]))
+		}
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }

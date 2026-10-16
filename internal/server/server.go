@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -40,7 +41,10 @@ type Deps struct {
 	// WebhookSecretSet tells the dashboard whether GitHub deliveries can
 	// be verified at all.
 	WebhookSecretSet bool
-	UI               fs.FS
+	// WebhookURL answers the public address of the webhook endpoint and
+	// where it was found; nil or "" when none is known.
+	WebhookURL func(context.Context) (url, source string)
+	UI         fs.FS
 	// Auth guards the API; nil leaves it open (tests).
 	Auth   *auth.Auth
 	Alerts Alerts
@@ -87,7 +91,7 @@ func New(d Deps) (http.Handler, error) {
 	}
 	envRoutes(api, d.Builds, session)
 	databaseRoutes(api, d.Databases)
-	repoRoutes(api, d.Repos, d.RepoAccess, d.Builds, d.WebhookSecretSet)
+	repoRoutes(api, d.Repos, d.RepoAccess, d.Builds, d.WebhookSecretSet, d.WebhookURL)
 	// Unknown API paths get a JSON 404, never the dashboard's index.html.
 	// Method-specific patterns keep the mux's automatic 405 for, say,
 	// POST /api/v1/snapshot.

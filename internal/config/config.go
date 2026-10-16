@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,6 +39,10 @@ type Config struct {
 	RetentionRaw, Retention1m, Retention1h time.Duration
 	// WebhookSecret verifies GitHub deliveries; empty disables webhooks.
 	WebhookSecret string
+	// WebhookURL is the address GitHub reaches the webhook endpoint at,
+	// for setting up a repository's webhook; empty finds it from
+	// Tailscale Funnel when that publishes piway.
+	WebhookURL string
 	// AppsFile lists the repositories and branches that deploy (docs/DEPLOY.md).
 	AppsFile string
 	// ProxyDomain publishes each app at <name>.<ProxyDomain> through Caddy
@@ -281,6 +286,22 @@ var fields = []field{
 		},
 		get:    func(c *Config) string { return c.WebhookSecret },
 		secret: true,
+	},
+	{
+		key:   "webhook_url",
+		usage: "public `URL` of the GitHub webhook endpoint (default: found from Tailscale Funnel)",
+		set: func(c *Config, s string) error {
+			if s != "" {
+				u, err := url.Parse(s)
+				if err != nil || u.Scheme != "https" || u.Host == "" {
+					return fmt.Errorf("must be an https:// URL, such as https://pi.example.ts.net:10000/api/v1/webhooks/github")
+				}
+			}
+			c.WebhookURL = s
+			return nil
+		},
+		get:   func(c *Config) string { return c.WebhookURL },
+		quote: true,
 	},
 	{
 		key:   "apps_file",
