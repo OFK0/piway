@@ -281,6 +281,17 @@ starts a fresh container of the version that runs now, health-checks it
 and switches to it like a deploy: no rebuild and no downtime. For an app
 that hangs or leaks memory. Logged as a build with `"kind": "restart"`.
 
+### Crashes
+
+When an app's container exits on its own, a crash or an OOM kill past
+`run.memory`, Docker starts it again. It comes back on a new port, and
+piway follows it within a second (it watches Docker's events, and checks
+every route every 30 seconds in case it missed one). An **App crashed**
+alert says what happened ([ALERTS.md](ALERTS.md)); it resolves after 10
+minutes without another crash. Stopping a container yourself
+(`docker stop`, `docker kill`) is not a crash, and Docker leaves it
+stopped: deploy or restart the app to bring it back.
+
 ### Rollback
 
 ```sh

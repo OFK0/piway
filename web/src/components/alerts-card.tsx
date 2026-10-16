@@ -113,6 +113,14 @@ export function AlertsCard() {
                       <TableCell className="hidden sm:table-cell">next deploy</TableCell>
                     </TableRow>
                   )}
+                  {data.app_crashes && (
+                    <TableRow>
+                      <TableCell>App crashed</TableCell>
+                      <TableCell className="hidden text-muted-foreground sm:table-cell">an app exits or runs out of memory</TableCell>
+                      <TableCell className="hidden sm:table-cell">at once</TableCell>
+                      <TableCell className="hidden sm:table-cell">10 min</TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>

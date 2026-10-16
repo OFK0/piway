@@ -39,6 +39,7 @@ func alerts(a Alerts) http.HandlerFunc {
 			"events":          a.Events(),
 			"rules":           rules,
 			"deploy_failures": cfg.DeployFailures,
+			"app_crashes":     cfg.AppCrashes,
 		})
 	}
 }

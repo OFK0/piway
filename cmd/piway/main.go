@@ -564,6 +564,12 @@ func openPipeline(ctx context.Context, cfg config.Config, repos webhook.TargetSo
 	if err := steps.Restore(ctx, p.Live); err != nil {
 		log.Warn("restore app routes", "err", err)
 	}
+	// Follow containers Docker restarts after a crash to their new port,
+	// and say when an app crashed (#132).
+	go steps.Watch(ctx, p.Live, func(c deploy.Crash) {
+		log.Warn("app crashed", "app", c.App, "oom", c.OOM, "exit_code", c.ExitCode)
+		alerts.AppCrashed(c.App, c.Summary(), c.At)
+	}, log)
 	for _, site := range p.LiveSites() {
 		if err := steps.ServeSite(site); err != nil {
 			log.Warn("restore site", "app", site.App, "err", err)

@@ -304,6 +304,7 @@ export interface AlertsResponse {
   events: AlertEvent[]
   rules: { name: string; metric: string; condition: string; for: string; clear_for: string }[]
   deploy_failures: boolean
+  app_crashes?: boolean
 }
 
 export const fetchAlerts = (signal?: AbortSignal) => getJSON<AlertsResponse>('/api/v1/alerts', signal)

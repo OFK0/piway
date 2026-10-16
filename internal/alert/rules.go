@@ -52,6 +52,9 @@ type Config struct {
 	// DeployFailures alerts when a deploy fails, and resolves when the
 	// app deploys again.
 	DeployFailures bool
+	// AppCrashes alerts when an app's container exits on its own (a
+	// crash, an OOM kill), and resolves after CrashQuiet without another.
+	AppCrashes bool
 }
 
 // DefaultClearFor is how long a value must stay back before its alert
@@ -74,6 +77,7 @@ func Defaults() Config {
 			{Name: "Memory is almost full", Metric: "memory_used_percent", Above: ptr(90), For: 5 * time.Minute, ClearFor: DefaultClearFor},
 		},
 		DeployFailures: true,
+		AppCrashes:     true,
 	}
 }
 
@@ -107,15 +111,19 @@ func parse(b []byte) (Config, error) {
 	var file struct {
 		Rules          []fileRule `yaml:"rules"`
 		DeployFailures *bool      `yaml:"deploy_failures"`
+		AppCrashes     *bool      `yaml:"app_crashes"`
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true) // a typo such as "abve" is an error, not a rule that never fires
 	if err := dec.Decode(&file); err != nil && !errors.Is(err, io.EOF) {
 		return Config{}, err
 	}
-	c := Config{DeployFailures: true}
+	c := Config{DeployFailures: true, AppCrashes: true}
 	if file.DeployFailures != nil {
 		c.DeployFailures = *file.DeployFailures
+	}
+	if file.AppCrashes != nil {
+		c.AppCrashes = *file.AppCrashes
 	}
 	seen := map[string]bool{}
 	for i, fr := range file.Rules {

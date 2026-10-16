@@ -190,6 +190,23 @@ func (f *fakeDaemon) routes() http.Handler {
 		}
 		w.Write([]byte(`{"memory_stats":{"usage":50000000,"stats":{"inactive_file":8000000}}}`))
 	})
+	mux.HandleFunc("GET "+v+"/events", func(w http.ResponseWriter, r *http.Request) {
+		var filters map[string][]string
+		json.Unmarshal([]byte(r.URL.Query().Get("filters")), &filters)
+		if !slices.Equal(filters["label"], []string{LabelApp}) || !slices.Contains(filters["event"], "die") {
+			http.Error(w, "filters "+r.URL.Query().Get("filters"), 400)
+			return
+		}
+		w.(http.Flusher).Flush()
+		for _, ev := range []string{
+			`{"Type":"container","Action":"oom","Actor":{"ID":"c1","Attributes":{"piway.app":"photos"}},"timeNano":1000}`,
+			`{"Type":"container","Action":"die","Actor":{"ID":"c1","Attributes":{"piway.app":"photos","exitCode":"137"}},"timeNano":2000}`,
+		} {
+			fmt.Fprintln(w, ev)
+			w.(http.Flusher).Flush()
+		}
+		<-r.Context().Done() // a stream stays open
+	})
 	mux.HandleFunc("POST "+v+"/containers/{id}/start", f.transition("running"))
 	mux.HandleFunc("POST "+v+"/containers/{id}/stop", f.transition("exited"))
 	mux.HandleFunc("DELETE "+v+"/containers/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -570,5 +587,23 @@ func TestMemoryUsage(t *testing.T) {
 	used, err := c.MemoryUsage(ctx, "c1")
 	if err != nil || used != 42000000 {
 		t.Errorf("MemoryUsage = %d, %v; want usage minus inactive page cache", used, err)
+	}
+}
+
+func TestEvents(t *testing.T) {
+	c, _ := startFake(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var got []Event
+	err := c.Events(ctx, LabelApp, []string{"die", "oom"}, func(ev Event) {
+		got = append(got, ev)
+		if len(got) == 2 {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Events = %v, want the context's error after cancel", err)
+	}
+	if len(got) != 2 || got[0].Action != "oom" || got[1].Attributes["exitCode"] != "137" || got[1].ID != "c1" || got[1].Attributes[LabelApp] != "photos" {
+		t.Errorf("events %+v", got)
 	}
 }
