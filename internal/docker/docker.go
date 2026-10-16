@@ -340,6 +340,46 @@ func (c *Client) MemoryUsage(ctx context.Context, id string) (int64, error) {
 	return used, nil
 }
 
+// Event is something that happened to a container, from the daemon's
+// event stream.
+type Event struct {
+	Action string // start, die, oom, ...
+	ID     string // the container
+	// Attributes has the container's labels, its name and, for die,
+	// exitCode.
+	Attributes map[string]string
+	Time       time.Time
+}
+
+// Events follows the daemon's events for containers with label, calling
+// fn for each of actions, until ctx ends or the stream breaks (an error).
+func (c *Client) Events(ctx context.Context, label string, actions []string, fn func(Event)) error {
+	filters, _ := json.Marshal(map[string][]string{"type": {"container"}, "label": {label}, "event": actions})
+	resp, err := c.request(ctx, http.MethodGet, "/events", url.Values{"filters": {string(filters)}}, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	dec := json.NewDecoder(resp.Body)
+	for {
+		var ev struct {
+			Action string `json:"Action"`
+			Actor  struct {
+				ID         string            `json:"ID"`
+				Attributes map[string]string `json:"Attributes"`
+			} `json:"Actor"`
+			TimeNano int64 `json:"timeNano"`
+		}
+		if err := dec.Decode(&ev); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("docker: events: %w", err)
+		}
+		fn(Event{Action: ev.Action, ID: ev.Actor.ID, Attributes: ev.Actor.Attributes, Time: time.Unix(0, ev.TimeNano)})
+	}
+}
+
 // Rename gives a container another name.
 func (c *Client) Rename(ctx context.Context, id, name string) error {
 	return c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/rename", url.Values{"name": {name}}, nil, nil)
@@ -396,6 +436,9 @@ type Details struct {
 	State  State
 	// Ports maps "3000/tcp" to the host port Docker published it on.
 	Ports map[string]int
+	// MemoryLimit is the container's memory limit in bytes; 0 is none.
+	MemoryLimit  int64
+	RestartCount int
 }
 
 // Details inspects a container.
@@ -411,12 +454,17 @@ func (c *Client) Details(ctx context.Context, id string) (Details, error) {
 		NetworkSettings struct {
 			Ports map[string][]portBinding `json:"Ports"`
 		} `json:"NetworkSettings"`
+		HostConfig struct {
+			Memory int64 `json:"Memory"`
+		} `json:"HostConfig"`
+		RestartCount int `json:"RestartCount"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, nil, &out); err != nil {
 		return Details{}, err
 	}
 	d := Details{ID: out.ID, Name: strings.TrimPrefix(out.Name, "/"), Image: out.Config.Image,
-		Labels: out.Config.Labels, State: out.State, Ports: map[string]int{}}
+		Labels: out.Config.Labels, State: out.State, Ports: map[string]int{},
+		MemoryLimit: out.HostConfig.Memory, RestartCount: out.RestartCount}
 	for port, bindings := range out.NetworkSettings.Ports {
 		for _, b := range bindings {
 			if n, err := strconv.Atoi(b.HostPort); err == nil && n > 0 {

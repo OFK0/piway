@@ -44,4 +44,9 @@ shows its length and a hash prefix, never the value) and deploy.
 
 Found on the way: after an OOM kill Docker restarts the container on a new
 host port, and piway's route kept the old one, so the app stayed
-unreachable until its next deploy (#132).
+unreachable until its next deploy (#132, fixed: piway now follows the
+restart within a second and raises an "App crashed" alert).
+
+The Pi has swap (zram), and Docker lets a container swap as much as its
+`run.memory`, so with 128 MiB it takes more than 256 MiB in all, such as
+`/mem?mb=400`, to get an OOM kill.

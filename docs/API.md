@@ -250,7 +250,8 @@ The alert engine's state ([ALERTS.md](ALERTS.md)).
   ],
   "events": [],
   "rules": [{"name": "Disk is almost full", "metric": "filesystem_used_percent", "condition": "> 90", "for": "5m0s", "clear_for": "1m0s"}],
-  "deploy_failures": true
+  "deploy_failures": true,
+  "app_crashes": true
 }
 ```
 

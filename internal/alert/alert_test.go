@@ -203,12 +203,13 @@ rules:
     above: 80
     clear_for: 5m
 deploy_failures: false
+app_crashes: false
 `), 0o644)
 	c, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Rules) != 2 || c.DeployFailures || c.Rules[0].For != 30*time.Second || c.Rules[0].ClearFor != DefaultClearFor || c.Rules[1].ClearFor != 5*time.Minute {
+	if len(c.Rules) != 2 || c.DeployFailures || c.AppCrashes || c.Rules[0].For != 30*time.Second || c.Rules[0].ClearFor != DefaultClearFor || c.Rules[1].ClearFor != 5*time.Minute {
 		t.Errorf("loaded %+v", c)
 	}
 	if c.Rules[0].Condition() != "> 70" {
@@ -233,5 +234,36 @@ func TestLoadErrors(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", body, err, want)
 		}
+	}
+}
+
+func TestAppCrashed(t *testing.T) {
+	e := New(Defaults())
+	var got []Event
+	e.OnEvent(func(ev Event) { got = append(got, ev) })
+	t0 := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+
+	e.AppCrashed("loadlab", "loadlab was killed for running out of memory", t0)
+	e.AppCrashed("loadlab", "loadlab was killed for running out of memory", t0.Add(time.Minute))
+	if len(got) != 1 || got[0].State != Firing || got[0].Rule != CrashRule || got[0].Series != "app:loadlab" {
+		t.Fatalf("events %+v; want one firing", got)
+	}
+	if a := e.Active(); len(a) != 1 || !strings.Contains(a[0].Summary, "2 times") {
+		t.Errorf("active %+v", a)
+	}
+
+	e.Observe(nil, t0.Add(time.Minute+CrashQuiet-time.Second))
+	if len(got) != 1 {
+		t.Errorf("resolved too early: %+v", got)
+	}
+	e.Observe(nil, t0.Add(time.Minute+CrashQuiet))
+	if len(got) != 2 || got[1].State != Resolved || len(e.Active()) != 0 {
+		t.Errorf("events %+v, active %+v; want resolved", got, e.Active())
+	}
+
+	off := New(Config{})
+	off.AppCrashed("loadlab", "x", t0)
+	if len(off.Active()) != 0 {
+		t.Error("app_crashes: false still fired")
 	}
 }

@@ -53,6 +53,13 @@ type Event struct {
 // DeployRule names deploy-failure alerts.
 const DeployRule = "Deploy failed"
 
+// CrashRule names app-crash alerts.
+const CrashRule = "App crashed"
+
+// CrashQuiet is how long an app must run without crashing again before
+// its crash alert resolves.
+const CrashQuiet = 10 * time.Minute
+
 const keepEvents = 50
 
 // Engine evaluates rules on every snapshot.
@@ -62,13 +69,19 @@ type Engine struct {
 	mu        sync.Mutex
 	instances map[string]*Alert // by rule + "\x00" + series
 	clearing  map[string]time.Time
-	events    []Event // newest last
+	crashes   map[string]crashState // by app
+	events    []Event               // newest last
 	listeners []func(Event)
 }
 
 // New returns an Engine for cfg.
 func New(cfg Config) *Engine {
-	return &Engine{cfg: cfg, instances: map[string]*Alert{}, clearing: map[string]time.Time{}}
+	return &Engine{cfg: cfg, instances: map[string]*Alert{}, clearing: map[string]time.Time{}, crashes: map[string]crashState{}}
+}
+
+type crashState struct {
+	last  time.Time
+	count int
 }
 
 // OnEvent registers f to run for every firing and resolved event, outside
@@ -104,9 +117,53 @@ func (e *Engine) Observe(points []tsdb.Point, at time.Time) {
 			}
 		}
 	}
+	out = append(out, e.quietCrashes(at)...)
 	e.record(out)
 	e.mu.Unlock()
 	e.announce(out)
+}
+
+// AppCrashed fires app's crash alert with summary, or, while it fires,
+// counts another crash in it.
+func (e *Engine) AppCrashed(app, summary string, at time.Time) {
+	if !e.cfg.AppCrashes {
+		return
+	}
+	e.mu.Lock()
+	series := "app:" + app
+	k := key(CrashRule, series)
+	st := e.crashes[app]
+	st.last, st.count = at, st.count+1
+	e.crashes[app] = st
+	var out []Event
+	if a, firing := e.instances[k]; firing {
+		a.Summary = fmt.Sprintf("%s (%d times in a row)", summary, st.count) // no new announcement
+	} else {
+		a := &Alert{Rule: CrashRule, Series: series, Summary: summary}
+		e.instances[k] = a
+		out = append(out, e.fire(a, at))
+	}
+	e.record(out)
+	e.mu.Unlock()
+	e.announce(out)
+}
+
+// quietCrashes resolves crash alerts of apps that ran CrashQuiet since
+// their last crash; caller holds e.mu.
+func (e *Engine) quietCrashes(at time.Time) []Event {
+	var out []Event
+	for app, st := range e.crashes {
+		if at.Sub(st.last) < CrashQuiet {
+			continue
+		}
+		delete(e.crashes, app)
+		k := key(CrashRule, "app:"+app)
+		if a, ok := e.instances[k]; ok {
+			a.Summary = fmt.Sprintf("%s has run for %s without crashing", app, CrashQuiet)
+			out = append(out, e.resolve(k, a, at))
+		}
+	}
+	return out
 }
 
 // matches reports whether a rule's metric covers series: exactly, or as

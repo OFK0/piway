@@ -17,6 +17,7 @@ Without an alerts file, piway uses these:
 | Disk is almost full | `filesystem_used_percent` > 90, per filesystem | 5m | 1m |
 | Memory is almost full | `memory_used_percent` > 90 | 5m | 1m |
 | Deploy failed | a deploy of a repository branch fails | at once | its next successful deploy or rollback |
+| App crashed | an app's running container exits without piway stopping it: a crash, or an OOM kill past `run.memory` (the summary says which) | at once | 10 minutes without another crash |
 
 The Pi 4 starts throttling at 80 °C, so "CPU is hot" warns before that.
 
@@ -44,6 +45,9 @@ rules:
 
 # Alert when a deploy fails (default true).
 deploy_failures: true
+
+# Alert when an app crashes or is killed for memory (default true).
+app_crashes: true
 ```
 
 | Field | Required | Meaning |
