@@ -1,0 +1,19 @@
+piway: 1
+name: reports
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  port: 8080
+  env:
+    GREETING: hello from piway.yaml
+  secrets:
+    - REPORTS_TOKEN
+  databases: [mariadb]
+  memory: 384MiB
+  volumes:
+    - data:/data
+  health:
+    path: /healthz
+    start_period: 2m      # the JVM and the first sample data take a while on a Pi

@@ -12,8 +12,9 @@ the fixtures of piway's end-to-end tests (#113).
 | [chat](chat) | Node.js | Rooms over WebSocket, Redis pub/sub and history (`run.databases`), attachments |
 | [notes](notes) | PHP | CRUD on MariaDB, sessions in Redis, attachments, a scheduled cleanup script |
 | [feeds](feeds) | Ruby | Scheduled RSS fetching, SQLite on a volume (WAL), new items over SSE, OPML |
+| [reports](reports) | Java | Queued CSV and PDF reports on a thread pool, MariaDB, progress over SSE, a JVM inside `run.memory` |
 
-More are on the way (#112): Java reports, Clojure events and a static docs site.
+More are on the way (#112): Clojure events and a static docs site.
 
 ## Common contract
 
