@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/ofk0/piway/internal/config"
+	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/setup"
+	"github.com/ofk0/piway/internal/webhook"
 )
 
 // runDoctor implements `piway doctor`: it checks the installation and says
@@ -79,5 +81,7 @@ func doctorEnv() setup.Env {
 		return env
 	}
 	env.Config, env.ConfigFile = loaded.Config, loaded.File
+	env.Repos, env.ReposErr = webhook.LoadTargets(loaded.Config.AppsFile)
+	env.TestRepo = gitauth.New(keysDir(loaded.Config)).Test
 	return env
 }

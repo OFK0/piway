@@ -365,9 +365,12 @@ when deploys are off.
 
 | Endpoint | Meaning |
 |---|---|
-| `GET /api/v1/repos` | `{"repos": [{"repo", "branch", "app"}…], "webhook": {"path", "configured"}}`. `app` is set once the branch was built; `configured` says whether `webhook_secret` is set. |
-| `POST /api/v1/repos` | Body `{"repo": "owner/name", "branch": "main"}` (branch defaults to `main`). `201`; `400` for a bad name; `409` if already listed. |
-| `DELETE /api/v1/repos?repo=owner/name&branch=main` | Stops deploying. Without `branch`, every branch of the repository goes. `404` if not listed. Running apps and their data are untouched. |
+| `GET /api/v1/repos` | `{"repos": [{"repo", "branch", "app", "auth", "public_key", "deploy_key_url"}…], "webhook": {"path", "configured"}, "private": {"available", "token_set"}}`. `app` is set once the branch was built; `configured` says whether `webhook_secret` is set. `auth` is `deploy-key` or `token`, absent for a public repository; a deploy key comes with its public key and the GitHub page to add it on. |
+| `POST /api/v1/repos` | Body `{"repo": "owner/name", "branch": "main", "auth": "deploy-key"}` (branch defaults to `main`, auth to public). `201` with the entry, including the new deploy key's `public_key`; `400` for a bad name or auth, or an auth that differs from the repository's other branches; `409` if already listed. |
+| `DELETE /api/v1/repos?repo=owner/name&branch=main` | Stops deploying. Without `branch`, every branch of the repository goes. `404` if not listed. Running apps and their data are untouched. When the last branch goes, so does its deploy key: `{"removed": […], "key_removed": true}`. |
+| `POST /api/v1/repos/test` | Body `{"repo": "owner/name"}`: can piway read it (`git ls-remote`)? `{"ok": true}`, or `{"ok": false, "kind", "message", "detail"}` where `kind` is `no_key`, `key_rejected`, `not_found`, `no_token`, `token_rejected`, `host_key`, `network` or `other`, `message` says what to do and `detail` is git's own line. `404` if not listed. |
+| `PUT /api/v1/repos/token` | Body `{"token": "github_pat_…"}`: stores the token for `auth: token` repositories. `204`. It is never returned. |
+| `DELETE /api/v1/repos/token` | Deletes the token. `204`. |
 
 ## `GET /api/v1/stream` (WebSocket)
 

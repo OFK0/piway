@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/manifest"
 	"github.com/ofk0/piway/internal/webhook"
 )
@@ -45,8 +46,12 @@ type Options struct {
 	// Targets are the repository branches in apps.yaml, which DeployNow
 	// may deploy before any push. It is asked on every use, so it may change.
 	Targets webhook.TargetSource
-	// ResolveHead finds a branch's newest commit; default git ls-remote.
-	ResolveHead func(ctx context.Context, cloneURL, branch string) (string, error)
+	// Git reads private repositories for ResolveHead; nil reads only
+	// public ones.
+	Git *gitauth.Access
+	// ResolveHead finds a branch's newest commit; default Git.Head
+	// (git ls-remote).
+	ResolveHead func(ctx context.Context, src gitauth.Source, branch string) (string, error)
 	// OnFinish, if set, runs when a build ends, with p's lock held: it
 	// must return quickly and not call back into the Pipeline.
 	OnFinish func(Build)
@@ -287,6 +292,7 @@ func (p *Pipeline) steps(ctx context.Context, b Build, out io.Writer) (result, e
 		return res, err
 	}
 
+	b.Auth = webhook.AuthOf(p.configured(), b.Repo)
 	fmt.Fprintf(out, "==> Fetching %s@%s (%s)\n", b.Repo, b.Branch, b.Commit)
 	if err := p.opts.Steps.Fetch(ctx, b, dir, out); err != nil {
 		return res, fmt.Errorf("fetch: %w", err)

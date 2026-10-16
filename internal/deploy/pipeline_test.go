@@ -38,6 +38,7 @@ type fakeSteps struct {
 	siteFiles map[string]string // written by Fetch next to piway.yaml
 	siteFail  error             // returned by SiteBuild, if set
 	siteDirs  []string          // directories ReleaseSite served, in order
+	auths     []string          // the Auth of each build fetched, in order
 }
 
 func newFake() *fakeSteps {
@@ -48,6 +49,7 @@ func (f *fakeSteps) Fetch(_ context.Context, b Build, dir string, out io.Writer)
 	fmt.Fprintf(out, "fetched %s\n", b.Commit)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.auths = append(f.auths, b.Auth)
 	for name, body := range f.siteFiles {
 		p := filepath.Join(dir, name)
 		os.MkdirAll(filepath.Dir(p), 0o755)

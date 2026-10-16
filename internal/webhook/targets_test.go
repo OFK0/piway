@@ -23,11 +23,12 @@ deploy:
     branch: main
   - repo: OFK0/blog
     branch: release
+    auth: deploy-key
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Target{{"OFK0/guestbook", "main"}, {"OFK0/blog", "release"}}
+	want := []Target{{Repo: "OFK0/guestbook", Branch: "main"}, {Repo: "OFK0/blog", Branch: "release", Auth: "deploy-key"}}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -49,6 +50,8 @@ func TestLoadTargetsRejects(t *testing.T) {
 		"bad repo":    "deploy:\n  - repo: https://github.com/a/b\n    branch: main\n",
 		"duplicate":   "deploy:\n  - {repo: a/b, branch: main}\n  - {repo: A/B, branch: main}\n",
 		"unknown key": "apps:\n  - repo: a/b\n",
+		"bad auth":    "deploy:\n  - {repo: a/b, branch: main, auth: password}\n",
+		"mixed auth":  "deploy:\n  - {repo: a/b, branch: main, auth: token}\n  - {repo: A/b, branch: dev}\n",
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -57,5 +60,15 @@ func TestLoadTargetsRejects(t *testing.T) {
 				t.Errorf("err = %v, want an error naming the file", err)
 			}
 		})
+	}
+}
+
+func TestAuthOf(t *testing.T) {
+	targets := []Target{{Repo: "o/pub", Branch: "main"}, {Repo: "O/Priv", Branch: "main", Auth: "token"}}
+	if got := AuthOf(targets, "o/priv"); got != "token" {
+		t.Errorf("AuthOf(o/priv) = %q", got)
+	}
+	if got := AuthOf(targets, "o/pub") + AuthOf(targets, "o/other"); got != "" {
+		t.Errorf("public and unlisted: %q", got)
 	}
 }
