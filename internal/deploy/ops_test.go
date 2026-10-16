@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/webhook"
 )
 
@@ -61,11 +62,11 @@ func TestRestartReleasesTheLiveVersion(t *testing.T) {
 
 func TestDeployNow(t *testing.T) {
 	var asked []string
-	resolve := func(_ context.Context, cloneURL, branch string) (string, error) {
-		asked = append(asked, cloneURL+" "+branch)
+	resolve := func(_ context.Context, src gitauth.Source, branch string) (string, error) {
+		asked = append(asked, src.URL+" "+branch+" "+src.Auth)
 		return strings.Repeat("c", 40), nil
 	}
-	targets := []webhook.Target{{Repo: "OFK0/guestbook", Branch: "main"}, {Repo: "OFK0/blog", Branch: "main"}}
+	targets := []webhook.Target{{Repo: "OFK0/guestbook", Branch: "main"}, {Repo: "OFK0/blog", Branch: "main", Auth: gitauth.DeployKey}}
 	h := start(t, t.TempDir(), Options{Targets: webhook.StaticTargets(targets), ResolveHead: resolve})
 	ctx := context.Background()
 
@@ -77,12 +78,17 @@ func TestDeployNow(t *testing.T) {
 	if b.Repo != "OFK0/blog" || b.Commit != strings.Repeat("c", 40) || b.Pusher != "api" || b.CloneURL != "https://github.com/OFK0/blog.git" {
 		t.Errorf("build %+v", b)
 	}
-	if len(asked) != 1 || asked[0] != "https://github.com/OFK0/blog.git main" {
+	if len(asked) != 1 || asked[0] != "https://github.com/OFK0/blog.git main deploy-key" {
 		t.Errorf("resolved %v", asked)
 	}
 	started(t, h.steps)
 	h.steps.release <- nil
 	waitState(t, h.p, b.ID, Succeeded)
+	h.steps.mu.Lock()
+	if len(h.steps.auths) != 1 || h.steps.auths[0] != gitauth.DeployKey {
+		t.Errorf("fetched with auth %q, want the repository's deploy key", h.steps.auths)
+	}
+	h.steps.mu.Unlock()
 
 	// By app name, with an exact commit: no lookup, the app's clone URL.
 	sha := strings.Repeat("d", 40)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/docker"
+	"github.com/ofk0/piway/internal/gitauth"
+	"github.com/ofk0/piway/internal/webhook"
 )
 
 // Env is what the checks need to know about this installation.
@@ -22,6 +25,12 @@ type Env struct {
 	ConfigErr  error         // why the config could not be loaded
 	User       string
 	Home       string
+	// Repos are the repositories in apps.yaml, and TestRepo checks that
+	// piway can read a private one (gitauth.Access.Test). Without
+	// TestRepo, repository access is not checked.
+	Repos    []webhook.Target
+	ReposErr error // why apps.yaml could not be read
+	TestRepo func(ctx context.Context, src gitauth.Source) error
 }
 
 // Supported Raspberry Pi OS (Debian) releases.
@@ -33,7 +42,8 @@ const (
 )
 
 // Doctor checks the installation and returns one result per item, in a
-// stable order: system, piway, Docker, the app proxy, remote access.
+// stable order: system, piway, Docker, the app proxy, remote access,
+// private repositories.
 func Doctor(ctx context.Context, h Host, env Env) *Report {
 	c := &checker{ctx: ctx, h: h, env: env}
 	c.system()
@@ -41,6 +51,7 @@ func Doctor(ctx context.Context, h Host, env Env) *Report {
 	c.docker()
 	c.proxy()
 	c.remote()
+	c.repos()
 	return &Report{Results: c.results}
 }
 
@@ -341,6 +352,52 @@ func (c *checker) remote() {
 	default:
 		c.add("tailscale", "Tailscale", OK, "serves piway over HTTPS", "")
 	}
+}
+
+// repos checks that each private repository in apps.yaml can be read.
+// Public repositories need nothing, and with none private there is no
+// section.
+func (c *checker) repos() {
+	c.section = "Private repositories"
+	if c.env.ReposErr != nil {
+		c.add("repos", "apps.yaml", Fail, c.env.ReposErr.Error(), "fix the file, or list repositories with: piway repo list")
+		return
+	}
+	if c.env.TestRepo == nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, t := range c.env.Repos {
+		key := strings.ToLower(t.Repo)
+		if t.Auth == gitauth.Public || seen[key] {
+			continue
+		}
+		seen[key] = true
+		id := "repo:" + key
+		err := c.env.TestRepo(c.ctx, gitauth.Source{Repo: t.Repo, Auth: t.Auth})
+		if err == nil {
+			c.add(id, t.Repo, OK, "readable with its "+authLabel(t.Auth), "")
+			continue
+		}
+		fix := "piway repo test " + t.Repo
+		var e *gitauth.Error
+		if errors.As(err, &e) {
+			switch e.Kind {
+			case gitauth.NoKey, gitauth.KeyRejected:
+				fix = "piway repo key " + t.Repo + "\n" + fix
+			case gitauth.NoToken, gitauth.TokenRejected:
+				fix = "piway repo token set\n" + fix
+			}
+		}
+		c.add(id, t.Repo, Fail, err.Error(), fix)
+	}
+}
+
+func authLabel(auth string) string {
+	if auth == gitauth.Token {
+		return "GitHub token"
+	}
+	return "deploy key"
 }
 
 func (c *checker) exists(path string) bool {

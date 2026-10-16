@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/webhook"
 )
 
@@ -126,9 +125,10 @@ func (p *Pipeline) DeployNow(ctx context.Context, r DeployRequest, pusher string
 	if commit == "" {
 		resolve := p.opts.ResolveHead
 		if resolve == nil {
-			resolve = gitHead
+			resolve = p.opts.Git.Head
 		}
-		if commit, err = resolve(ctx, cloneURL, branch); err != nil {
+		src := gitauth.Source{Repo: repo, Auth: webhook.AuthOf(p.configured(), repo), URL: cloneURL}
+		if commit, err = resolve(ctx, src, branch); err != nil {
 			return Build{}, fmt.Errorf("%w of %s@%s: %w", ErrNoHead, repo, branch, err)
 		}
 	}
@@ -170,30 +170,6 @@ func (p *Pipeline) target(r DeployRequest) (repo, branch, cloneURL string, err e
 		}
 	}
 	return "", "", "", fmt.Errorf("%w: %s@%s", ErrUnknownTarget, r.Repo, r.Branch)
-}
-
-// gitHead asks the remote for branch's newest commit.
-func gitHead(ctx context.Context, cloneURL, branch string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--exit-code", cloneURL, "refs/heads/"+branch)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	out, err := cmd.Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && ee.ExitCode() == 2 {
-			return "", fmt.Errorf("no branch %q", branch)
-		}
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return "", fmt.Errorf("git ls-remote: %s", strings.TrimSpace(string(ee.Stderr)))
-		}
-		return "", err
-	}
-	sha, _, _ := strings.Cut(string(out), "\t")
-	if !fullSHA.MatchString(sha) {
-		return "", fmt.Errorf("git ls-remote answered %q", strings.TrimSpace(string(out)))
-	}
-	return sha, nil
 }
 
 // LogReader reads an app's output. ExecSteps implements it.

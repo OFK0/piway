@@ -13,6 +13,8 @@ import (
 	files "github.com/ofk0/piway/deploy"
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/docker"
+	"github.com/ofk0/piway/internal/gitauth"
+	"github.com/ofk0/piway/internal/webhook"
 )
 
 // fakeHost is a machine described by maps. Commands not listed fail.
@@ -267,6 +269,36 @@ func TestDoctorProxyAndRemote(t *testing.T) {
 	if _, ok := r.Get("avahi"); ok {
 		t.Error("avahi checked for a non-.local domain")
 	}
+}
+
+func TestDoctorPrivateRepos(t *testing.T) {
+	env := testEnv()
+	env.Repos = []webhook.Target{
+		{Repo: "OFK0/public", Branch: "main"},
+		{Repo: "OFK0/keyed", Branch: "main", Auth: gitauth.DeployKey},
+		{Repo: "OFK0/keyed", Branch: "dev", Auth: gitauth.DeployKey},
+		{Repo: "OFK0/tokened", Branch: "main", Auth: gitauth.Token},
+	}
+	var tested []string
+	env.TestRepo = func(_ context.Context, src gitauth.Source) error {
+		tested = append(tested, src.Repo+" "+src.Auth)
+		if src.Auth == gitauth.Token {
+			return &gitauth.Error{Kind: gitauth.TokenRejected, Repo: src.Repo}
+		}
+		return nil
+	}
+	r := Doctor(context.Background(), healthyPi(), env)
+	wantStatus(t, r, map[string]Status{"repo:ofk0/keyed": OK, "repo:ofk0/tokened": Fail})
+	if len(tested) != 2 {
+		t.Errorf("tested %q: each private repository once, public ones never", tested)
+	}
+	if res, _ := r.Get("repo:ofk0/tokened"); !strings.Contains(res.Fix, "piway repo token set") {
+		t.Errorf("fix = %q", res.Fix)
+	}
+
+	env.ReposErr = errors.New("apps.yaml: deploy[0]: branch is required")
+	r = Doctor(context.Background(), healthyPi(), env)
+	wantStatus(t, r, map[string]Status{"repos": Fail})
 }
 
 func TestDoctorSystem(t *testing.T) {

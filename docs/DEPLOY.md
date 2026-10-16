@@ -37,6 +37,80 @@ are tags and branch deletions. Unknown keys and duplicates are errors. A hand
 edit that does not parse is ignored, with a warning in piway's log, until it is
 fixed; piway keeps deploying from the last good list.
 
+### Private repositories
+
+A private repository needs a credential, set per repository with `auth`. It
+is the same for every branch of a repository. Public repositories need
+nothing.
+
+**Deploy key (recommended).** piway makes an SSH key pair for the
+repository, and you add its public half to the repository as a read-only
+deploy key. It opens that one repository, cannot write and does not expire;
+no account-wide credential is involved.
+
+```sh
+piway repo add OFK0/private-app -private
+```
+
+This lists the repository with `auth: deploy-key` and prints the public key
+with a link to the repository's **Settings › Deploy keys › Add deploy key**.
+Paste it there and leave **Allow write access** off. Then check:
+
+```sh
+piway repo test OFK0/private-app
+piway repo key OFK0/private-app   # print the public key again
+```
+
+The private key stays in `keys/` next to `apps.yaml`
+(`~/.config/piway/keys/`), mode 0600. It never leaves the Pi: the API and the
+dashboard show only the public key. Removing the repository's last branch
+deletes its key; remove the deploy key on GitHub as well.
+
+piway trusts only GitHub's published SSH host keys, which are built in, so a
+first connection does not accept whatever key it is shown. If port 22 is
+blocked on your network, piway connects to `ssh.github.com:443` instead
+and keeps using it until it restarts.
+
+**Fine-grained token.** With many private repositories, one token can be
+simpler than a key for each. On GitHub, **Settings › Developer settings ›
+Fine-grained tokens**: choose the repositories, give **Contents: Read-only**
+and nothing else, and set an expiry you will remember. Then:
+
+```sh
+piway repo token set                      # paste it; it is not echoed
+piway repo add OFK0/another-app -token
+piway repo test OFK0/another-app
+```
+
+The token is stored in `keys/github-token`, mode 0600, and is used for every
+repository with `auth: token`. git reads it through `GIT_ASKPASS`, so it is
+never part of a URL or a command line and does not appear in build logs or
+errors. When it expires, `piway repo token set` again; `piway repo token
+remove` deletes it.
+
+By hand, `apps.yaml` looks like this:
+
+```yaml
+deploy:
+  - repo: OFK0/private-app
+    branch: main
+    auth: deploy-key        # or: token
+```
+
+For an entry written by hand, make its key with `piway repo add
+OFK0/private-app -private`, which leaves the entry as it is.
+
+`piway repo test` and `piway doctor` say what is wrong when piway cannot
+read a repository:
+
+| Message | What to do |
+| ------- | ---------- |
+| GitHub does not know this deploy key | Add the key from `piway repo key` to the repository. |
+| does not exist, or this deploy key was added to a different repository | Check the name; a deploy key belongs to exactly one repository. |
+| does not exist, or the token has no access to it | Add the repository to the token's list, with Contents: read. |
+| GitHub rejected the token | It is wrong, expired or revoked: `piway repo token set`. |
+| cannot reach GitHub | Check the Pi's network and DNS. |
+
 ## 2. Set a secret
 
 ```sh

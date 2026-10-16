@@ -47,6 +47,9 @@ const maxBody = 5 << 20
 type Target struct {
 	Repo   string `yaml:"repo"`   // owner/name, matched case-insensitively
 	Branch string `yaml:"branch"` // e.g. main
+	// Auth is how piway reads a private repository: gitauth.DeployKey or
+	// gitauth.Token. Empty for a public one.
+	Auth string `yaml:"auth,omitempty"`
 }
 
 // Request asks for a commit to be deployed.

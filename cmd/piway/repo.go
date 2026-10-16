@@ -1,27 +1,46 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/ofk0/piway/internal/config"
+	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/webhook"
+	"golang.org/x/term"
 )
 
 const repoUsage = `usage: piway repo <command>
 
-  add owner/name [-branch main]      deploy pushes to this repository
+  add owner/name [-branch main] [-private | -token]
+                                     deploy pushes to this repository
   list                               show the repositories that deploy
   remove owner/name [-branch main]   stop deploying it (all branches without -branch)
+  test owner/name                    check that piway can read the repository
+  key owner/name                     show a private repository's deploy key again
+  token set | remove                 store or delete the GitHub token for -token
+
+A private repository needs -private (piway makes a deploy key for it, which
+you add to the repository on GitHub) or -token (one fine-grained token with
+Contents: read). Deploy keys are recommended; docs/DEPLOY.md explains both.
 
 Edits apps_file; a running piway picks the change up within a moment, with
 no restart. Apps that are already running, and their data, are not touched.`
+
+// keysDir holds deploy keys and the token: keys/ next to apps.yaml.
+func keysDir(cfg config.Config) string {
+	return filepath.Join(filepath.Dir(cfg.AppsFile), "keys")
+}
 
 // runRepo implements `piway repo`: the repositories in apps.yaml, without
 // editing it by hand.
@@ -44,13 +63,26 @@ func runRepo(args []string) int {
 		fmt.Fprintln(os.Stderr, "piway:", err)
 		return 1
 	}
-	return repoCommand(store, loaded.Config, args[0], args[1:], os.Stdout, os.Stderr)
+	r := repoCLI{store: store, access: gitauth.New(keysDir(loaded.Config)), cfg: loaded.Config,
+		stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr}
+	return r.command(args[0], args[1:])
 }
 
-func repoCommand(store *webhook.Store, cfg config.Config, cmd string, args []string, stdout, stderr io.Writer) int {
+type repoCLI struct {
+	store          *webhook.Store
+	access         *gitauth.Access
+	cfg            config.Config
+	stdin          io.Reader
+	stdout, stderr io.Writer
+}
+
+func (r repoCLI) command(cmd string, args []string) int {
+	stdout, stderr := r.stdout, r.stderr
 	fs := flag.NewFlagSet("piway repo "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	branch := fs.String("branch", "", "`branch` to deploy (add: default main; remove: default every branch)")
+	private := fs.Bool("private", false, "add: a private repository, read with a deploy key piway makes")
+	token := fs.Bool("token", false, "add: a private repository, read with the stored GitHub token")
 	// Flags may follow the repository: piway repo add owner/name -branch dev.
 	var rest []string
 	for len(args) > 0 {
@@ -81,15 +113,19 @@ func repoCommand(store *webhook.Store, cfg config.Config, cmd string, args []str
 			fmt.Fprintln(stderr, "usage: piway repo list")
 			return 2
 		}
-		targets := store.Targets()
+		targets := r.store.Targets()
 		if len(targets) == 0 {
 			fmt.Fprintln(stdout, "No repositories deploy yet. Add one: piway repo add owner/name")
 			return 0
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "REPOSITORY\tBRANCH")
+		fmt.Fprintln(tw, "REPOSITORY\tBRANCH\tAUTH")
 		for _, t := range targets {
-			fmt.Fprintf(tw, "%s\t%s\n", t.Repo, t.Branch)
+			auth := t.Auth
+			if auth == "" {
+				auth = "public"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", t.Repo, t.Branch, auth)
 		}
 		_ = tw.Flush()
 		return 0
@@ -99,25 +135,58 @@ func repoCommand(store *webhook.Store, cfg config.Config, cmd string, args []str
 		if !ok {
 			return 2
 		}
+		if *private && *token {
+			fmt.Fprintln(stderr, "piway: choose -private (deploy key) or -token, not both")
+			return 2
+		}
+		auth := gitauth.Public
+		switch {
+		case *private:
+			auth = gitauth.DeployKey
+		case *token:
+			auth = gitauth.Token
+		}
 		b := *branch
 		if b == "" {
 			b = "main"
 		}
-		err := store.Add(webhook.Target{Repo: repo, Branch: b})
-		if errors.Is(err, webhook.ErrExists) {
-			fmt.Fprintf(stdout, "%s@%s is already listed.\n", repo, b)
-			return 0
-		}
-		if err != nil {
+		err := r.store.Add(webhook.Target{Repo: repo, Branch: b, Auth: auth})
+		exists := errors.Is(err, webhook.ErrExists)
+		if err != nil && !exists {
 			fmt.Fprintln(stderr, "piway:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "Added %s@%s to %s.\n\n", repo, b, cfg.AppsFile)
+		if auth == gitauth.DeployKey {
+			if _, err := r.access.GenerateKey(repo); err != nil {
+				fmt.Fprintln(stderr, "piway: make the deploy key:", err)
+				return 1
+			}
+		}
+		if exists {
+			fmt.Fprintf(stdout, "%s@%s is already listed.\n", repo, b)
+			if auth == gitauth.DeployKey {
+				return r.showKey(repo)
+			}
+			return 0
+		}
+		fmt.Fprintf(stdout, "Added %s@%s to %s.\n\n", repo, b, r.cfg.AppsFile)
+		switch auth {
+		case gitauth.DeployKey:
+			if code := r.showKey(repo); code != 0 {
+				return code
+			}
+			fmt.Fprintln(stdout)
+		case gitauth.Token:
+			if !r.access.HasToken() {
+				fmt.Fprintln(stdout, "No GitHub token is stored yet: piway repo token set")
+			}
+			fmt.Fprintf(stdout, "The token needs Contents: read on %s. Then check: piway repo test %s\n\n", repo, repo)
+		}
 		fmt.Fprintln(stdout, "Push events deploy it once GitHub reaches piway. On the repository's")
 		fmt.Fprintln(stdout, "Settings > Webhooks, point a webhook at")
 		fmt.Fprintln(stdout, "  https://<your piway address>"+"/api/v1/webhooks/github")
 		fmt.Fprintln(stdout, "with content type application/json and the same secret as webhook_secret.")
-		if cfg.WebhookSecret == "" {
+		if r.cfg.WebhookSecret == "" {
 			fmt.Fprintln(stdout, "\nwebhook_secret is not set, so piway will refuse every delivery (docs/DEPLOY.md).")
 		}
 		return 0
@@ -127,7 +196,7 @@ func repoCommand(store *webhook.Store, cfg config.Config, cmd string, args []str
 		if !ok {
 			return 2
 		}
-		removed, err := store.Remove(repo, *branch)
+		removed, err := r.store.Remove(repo, *branch)
 		if errors.Is(err, webhook.ErrNotFound) {
 			fmt.Fprintf(stderr, "piway: %s is not listed (piway repo list)\n", repo)
 			return 1
@@ -139,8 +208,99 @@ func repoCommand(store *webhook.Store, cfg config.Config, cmd string, args []str
 		for _, t := range removed {
 			fmt.Fprintf(stdout, "Removed %s@%s. Its running app keeps running.\n", t.Repo, t.Branch)
 		}
+		if removed[0].Auth == gitauth.DeployKey && !webhook.Listed(r.store.Targets(), repo) && r.access.HasKey(repo) {
+			if err := r.access.RemoveKey(repo); err != nil {
+				fmt.Fprintln(stderr, "piway: delete the deploy key:", err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "Deleted its deploy key. Remove it on GitHub too: https://github.com/%s/settings/keys\n", removed[0].Repo)
+		}
 		return 0
+
+	case "test":
+		repo, ok := need()
+		if !ok {
+			return 2
+		}
+		targets := r.store.Targets()
+		if !webhook.Listed(targets, repo) {
+			fmt.Fprintf(stderr, "piway: %s is not listed (piway repo list)\n", repo)
+			return 1
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := r.access.Test(ctx, gitauth.Source{Repo: repo, Auth: webhook.AuthOf(targets, repo)}); err != nil {
+			fmt.Fprintln(stderr, "piway:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "piway can read %s.\n", repo)
+		return 0
+
+	case "key":
+		repo, ok := need()
+		if !ok {
+			return 2
+		}
+		return r.showKey(repo)
+
+	case "token":
+		if len(rest) != 1 {
+			fmt.Fprintln(stderr, "usage: piway repo token set | remove")
+			return 2
+		}
+		switch rest[0] {
+		case "set":
+			tok, err := r.readToken()
+			if err == nil {
+				err = r.access.SetToken(tok)
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, "piway:", err)
+				return 1
+			}
+			fmt.Fprintln(stdout, "Stored the token. Check a repository with: piway repo test owner/name")
+			return 0
+		case "remove", "rm":
+			if err := r.access.RemoveToken(); err != nil {
+				fmt.Fprintln(stderr, "piway:", err)
+				return 1
+			}
+			fmt.Fprintln(stdout, "Deleted the token. Revoke it on GitHub too: https://github.com/settings/personal-access-tokens")
+			return 0
+		}
+		fmt.Fprintln(stderr, "usage: piway repo token set | remove")
+		return 2
 	}
 	fmt.Fprintln(stderr, repoUsage)
 	return 2
+}
+
+// showKey prints repo's public deploy key and where it goes.
+func (r repoCLI) showKey(repo string) int {
+	pub, err := r.access.PublicKey(repo)
+	if err != nil {
+		fmt.Fprintln(r.stderr, "piway:", err)
+		return 1
+	}
+	fmt.Fprintf(r.stdout, "Add this deploy key to %s (read access only, leave \"Allow write access\" off):\n\n", repo)
+	fmt.Fprintf(r.stdout, "  %s\n\n", pub)
+	fmt.Fprintf(r.stdout, "  %s\n\n", gitauth.DeployKeyURL(repo))
+	fmt.Fprintf(r.stdout, "Then check: piway repo test %s\n", repo)
+	return 0
+}
+
+// readToken asks for the token on the terminal without echoing it, or
+// reads one line from standard input when it is not a terminal.
+func (r repoCLI) readToken() (string, error) {
+	if f, ok := r.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		fmt.Fprint(r.stderr, "GitHub token (Contents: read): ")
+		b, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(r.stderr)
+		return string(b), err
+	}
+	line, err := bufio.NewReader(r.stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return line, nil
 }

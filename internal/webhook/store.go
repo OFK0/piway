@@ -98,19 +98,13 @@ func (s *Store) reload() error {
 }
 
 // Add lists t. It reports ErrExists for a repository and branch that are
-// already there (repository names are case-insensitive).
+// already there (repository names are case-insensitive), and ErrInvalid
+// for a bad target or one whose auth differs from the repository's other
+// branches.
 func (s *Store) Add(t Target) error {
-	if !repoName.MatchString(t.Repo) {
-		return fmt.Errorf("%w: repo %q is not owner/name", ErrInvalid, t.Repo)
-	}
-	if t.Branch == "" {
-		return fmt.Errorf("%w: branch is required", ErrInvalid)
-	}
 	return s.edit(func(doc *yaml.Node, seq *yaml.Node, current []Target) (bool, error) {
-		for _, c := range current {
-			if strings.EqualFold(c.Repo, t.Repo) && c.Branch == t.Branch {
-				return false, fmt.Errorf("%s@%s: %w", t.Repo, t.Branch, ErrExists)
-			}
+		if err := checkTarget(t, current); err != nil {
+			return false, err
 		}
 		seq.Content = append(seq.Content, targetNode(t))
 		return true, nil
@@ -209,9 +203,13 @@ func (s *Store) edit(fn func(doc, seq *yaml.Node, current []Target) (bool, error
 
 func targetNode(t Target) *yaml.Node {
 	str := func(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v} }
-	return &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+	n := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
 		str("repo"), str(t.Repo), str("branch"), str(t.Branch),
 	}}
+	if t.Auth != "" {
+		n.Content = append(n.Content, str("auth"), str(t.Auth))
+	}
+	return n
 }
 
 // writeAtomic replaces path with data: write a sibling file, sync, rename.

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ofk0/piway/internal/docker"
+	"github.com/ofk0/piway/internal/gitauth"
 	"github.com/ofk0/piway/internal/manifest"
 	"github.com/ofk0/piway/internal/router"
 )
@@ -24,9 +25,10 @@ import (
 // Engine API.
 type ExecSteps struct {
 	Docker     *docker.Client
-	Router     *router.Router // owns each app's stable port
-	DockerHost string         // unix://… for the docker CLI
-	SecretsDir string         // <app>.env files with the values of run.secrets
+	Router     *router.Router  // owns each app's stable port
+	DockerHost string          // unix://… for the docker CLI
+	SecretsDir string          // <app>.env files with the values of run.secrets
+	Git        *gitauth.Access // credentials for private repositories
 }
 
 // command runs name with args in dir, streaming stdout and stderr to out.
@@ -44,18 +46,20 @@ func (s ExecSteps) command(ctx context.Context, out io.Writer, dir, name string,
 	return cmd.Run()
 }
 
-// Fetch checks out exactly the pushed commit, shallowly.
+// Fetch checks out exactly the pushed commit, shallowly, with the
+// repository's credential if it is private.
 func (s ExecSteps) Fetch(ctx context.Context, b Build, dir string, out io.Writer) error {
-	for _, args := range [][]string{
-		{"init", "--quiet"},
-		{"fetch", "--quiet", "--depth", "1", b.CloneURL, b.Commit},
-		{"checkout", "--quiet", "FETCH_HEAD"},
-	} {
-		if err := s.command(ctx, out, dir, "git", args...); err != nil {
-			return err
-		}
+	if err := s.command(ctx, out, dir, "git", "init", "--quiet"); err != nil {
+		return err
 	}
-	return nil
+	src := gitauth.Source{Repo: b.Repo, Auth: b.Auth, URL: b.CloneURL}
+	err := s.Git.Run(ctx, src, dir, out, func(url string) []string {
+		return []string{"fetch", "--quiet", "--depth", "1", url, b.Commit}
+	})
+	if err != nil {
+		return err
+	}
+	return s.command(ctx, out, dir, "git", "checkout", "--quiet", "FETCH_HEAD")
 }
 
 // Image builds m with BuildKit for the Pi's own platform.

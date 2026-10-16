@@ -73,6 +73,26 @@ func TestStoreAddRejects(t *testing.T) {
 	if err := s.Add(Target{Repo: "a/b"}); err == nil {
 		t.Error("empty branch accepted")
 	}
+	if err := s.Add(Target{Repo: "OFK0/blog", Branch: "beta", Auth: "token"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a different auth for another branch: %v, want ErrInvalid", err)
+	}
+	if err := s.Add(Target{Repo: "a/b", Branch: "main", Auth: "password"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("unknown auth: %v, want ErrInvalid", err)
+	}
+}
+
+func TestStoreAddWritesAuth(t *testing.T) {
+	s, p := openStore(t, "deploy:\n  - repo: OFK0/blog\n    branch: main\n")
+	if err := s.Add(Target{Repo: "OFK0/app", Branch: "main", Auth: "deploy-key"}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if !strings.Contains(string(b), "auth: deploy-key") || strings.Count(string(b), "auth:") != 1 {
+		t.Errorf("file:\n%s", b)
+	}
+	if got := s.Targets(); len(got) != 2 || got[1].Auth != "deploy-key" {
+		t.Errorf("targets = %+v", got)
+	}
 }
 
 func TestStoreRemove(t *testing.T) {
