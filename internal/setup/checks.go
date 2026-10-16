@@ -31,6 +31,12 @@ type Env struct {
 	Repos    []webhook.Target
 	ReposErr error // why apps.yaml could not be read
 	TestRepo func(ctx context.Context, src gitauth.Source) error
+	// WebhookURL is the public address of the webhook endpoint ("" when
+	// piway knows none) and Hooks lists the payload URLs of a
+	// repository's webhooks on GitHub. Without Hooks the webhooks are
+	// not checked.
+	WebhookURL func(ctx context.Context) string
+	Hooks      func(ctx context.Context, repo string) ([]string, error)
 }
 
 // Supported Raspberry Pi OS (Debian) releases.
@@ -52,6 +58,7 @@ func Doctor(ctx context.Context, h Host, env Env) *Report {
 	c.proxy()
 	c.remote()
 	c.repos()
+	c.webhooks()
 	return &Report{Results: c.results}
 }
 
@@ -390,6 +397,51 @@ func (c *checker) repos() {
 			}
 		}
 		c.add(id, t.Repo, Fail, err.Error(), fix)
+	}
+}
+
+// webhooks checks that each listed repository's webhook on GitHub points
+// at the address GitHub reaches piway at. The address the dashboard is
+// opened at is often tailnet-only, so a webhook copied from it fails with
+// EOF (#140).
+func (c *checker) webhooks() {
+	if c.env.Hooks == nil || c.env.ReposErr != nil || len(c.env.Repos) == 0 {
+		return
+	}
+	c.section = "GitHub webhooks"
+	want := ""
+	if c.env.WebhookURL != nil {
+		want = c.env.WebhookURL(c.ctx)
+	}
+	if want == "" {
+		c.add("webhook-url", "Public address", Warn, "piway knows no address GitHub can reach, so a webhook cannot deliver",
+			"publish the webhook with Tailscale Funnel (docs/REMOTE.md), or set webhook_url")
+		return
+	}
+	c.add("webhook-url", "Public address", OK, want, "")
+	seen := map[string]bool{}
+	for _, t := range c.env.Repos {
+		key := strings.ToLower(t.Repo)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		id := "webhook:" + key
+		urls, err := c.env.Hooks(c.ctx, t.Repo)
+		switch {
+		case err != nil:
+			c.add(id, t.Repo, Skip, "cannot read its webhooks: "+err.Error(), "")
+		case slices.ContainsFunc(urls, func(u string) bool {
+			return strings.EqualFold(strings.TrimSuffix(u, "/"), strings.TrimSuffix(want, "/"))
+		}):
+			c.add(id, t.Repo, OK, "its webhook points at the public address", "")
+		case len(urls) == 0:
+			c.add(id, t.Repo, Warn, "no webhook on GitHub, so pushes do not deploy",
+				"add one: https://github.com/"+t.Repo+"/settings/hooks/new\nPayload URL "+want)
+		default:
+			c.add(id, t.Repo, Fail, "its webhook points at "+strings.Join(urls, ", ")+", not at "+want+", so GitHub cannot deliver (\"We couldn't deliver this payload\")",
+				"change its Payload URL to "+want+": https://github.com/"+t.Repo+"/settings/hooks")
+		}
 	}
 }
 

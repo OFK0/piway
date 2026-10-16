@@ -130,3 +130,29 @@ func TestRepoPath(t *testing.T) {
 		t.Errorf("targets %+v", store.Targets())
 	}
 }
+
+func TestRepoAddShowsPublicAddress(t *testing.T) {
+	cfg := config.Config{AppsFile: filepath.Join(t.TempDir(), "apps.yaml"), WebhookSecret: strings.Repeat("s", 20)}
+	for name, tc := range map[string]struct {
+		url  string
+		want string
+		not  string
+	}{
+		"found":   {"https://pi.example.ts.net:10000/api/v1/webhooks/github", "  https://pi.example.ts.net:10000/api/v1/webhooks/github", "<your piway address>"},
+		"unknown": {"", "knows no public", "<your piway address>"},
+	} {
+		store, err := webhook.OpenStore(cfg.AppsFile+name, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		r := repoCLI{store: store, access: gitauth.New(keysDir(cfg)), cfg: cfg, stdin: strings.NewReader(""), stdout: &out, stderr: &errb,
+			webhookURL: func() (string, string) { return tc.url, "tailscale funnel" }}
+		if code := r.command("add", []string{"OFK0/app"}); code != 0 {
+			t.Fatalf("%s: %d %s", name, code, errb.String())
+		}
+		if !strings.Contains(out.String(), tc.want) || strings.Contains(out.String(), tc.not) {
+			t.Errorf("%s: output\n%s", name, out.String())
+		}
+	}
+}

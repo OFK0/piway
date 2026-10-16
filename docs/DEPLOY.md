@@ -164,7 +164,7 @@ In the repository: **Settings › Webhooks › Add webhook**.
 
 | Field | Value |
 | ----- | ----- |
-| Payload URL | `https://<your piway address>/api/v1/webhooks/github` |
+| Payload URL | the address piway shows when you add the repository (see below) |
 | Content type | `application/json` (the default form encoding works too) |
 | Secret | the secret from step 2 |
 | Events | Just the push event |
@@ -173,8 +173,33 @@ GitHub sends a `ping` first; the delivery log on GitHub should show
 `{"status":"pong"}`.
 
 **GitHub must be able to reach piway.** A Pi on a home network is not
-reachable from the internet; exposing it safely is #27 (Tailscale Funnel
-or a Cloudflare Tunnel).
+reachable from the internet, and the address you open the dashboard at is
+often tailnet-only (`https://<pi>.<tailnet>.ts.net`), which GitHub cannot
+reach: a webhook pointed there fails with `We couldn't deliver this
+payload: EOF`. Publish only the webhook path with Tailscale Funnel, on its
+own port:
+
+```sh
+tailscale funnel --bg --https=10000 --set-path=/api/v1/webhooks/github http://127.0.0.1:8080/api/v1/webhooks/github
+```
+
+piway finds the public address by itself from `tailscale funnel status`:
+the Funnel-enabled host that forwards `/api/v1/webhooks/github` to piway's
+port, here `https://<pi>.<tailnet>.ts.net:10000/api/v1/webhooks/github`. The
+dashboard's **Add repository** dialog and `piway repo add` show it. If piway
+is published another way (a Cloudflare Tunnel, a reverse proxy), set it in
+the config:
+
+```yaml
+webhook_url: https://hooks.example.com/api/v1/webhooks/github
+```
+
+When piway knows no public address, the dialog and the command say so
+instead of offering the dashboard's address.
+
+`piway doctor` checks it: with the `gh` CLI signed in, it reads each listed
+repository's webhooks and fails for one whose Payload URL is not that
+address, which says what to change it to.
 
 ## What piway checks
 

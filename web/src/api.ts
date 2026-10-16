@@ -344,7 +344,13 @@ export interface Repo {
 }
 export interface ReposResponse {
   repos: Repo[]
-  webhook: { path: string; configured: boolean }
+  webhook: {
+    path: string
+    configured: boolean
+    /** The address GitHub reaches the endpoint at; empty when piway knows none. */
+    url?: string
+    url_source?: 'config' | 'tailscale funnel' | ''
+  }
   /** Whether private repositories can be added, and whether a token is stored. */
   private?: { available: boolean; token_set: boolean }
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ofk0/piway/internal/config"
 	"github.com/ofk0/piway/internal/gitauth"
+	"github.com/ofk0/piway/internal/publicurl"
 	"github.com/ofk0/piway/internal/webhook"
 	"golang.org/x/term"
 )
@@ -71,12 +72,23 @@ func runRepo(args []string) int {
 	return r.command(args[0], args[1:])
 }
 
+// publicURL is the address GitHub reaches the webhook at, and where it
+// was found, or "" when piway knows none.
+func (r repoCLI) publicURL() (string, string) {
+	if r.webhookURL != nil {
+		return r.webhookURL()
+	}
+	f := &publicurl.Finder{Configured: r.cfg.WebhookURL, Addr: r.cfg.Addr, Path: "/api/v1/webhooks/github"}
+	return f.URL(context.Background())
+}
+
 type repoCLI struct {
 	store          *webhook.Store
 	access         *gitauth.Access
 	cfg            config.Config
 	stdin          io.Reader
 	stdout, stderr io.Writer
+	webhookURL     func() (string, string) // tests; nil asks publicurl
 }
 
 func (r repoCLI) command(cmd string, args []string) int {
@@ -194,10 +206,19 @@ func (r repoCLI) command(cmd string, args []string) int {
 			}
 			fmt.Fprintf(stdout, "The token needs Contents: read on %s. Then check: piway repo test %s\n\n", repo, repo)
 		}
-		fmt.Fprintln(stdout, "Push events deploy it once GitHub reaches piway. On the repository's")
-		fmt.Fprintln(stdout, "Settings > Webhooks, point a webhook at")
-		fmt.Fprintln(stdout, "  https://<your piway address>"+"/api/v1/webhooks/github")
-		fmt.Fprintln(stdout, "with content type application/json and the same secret as webhook_secret.")
+		if url, _ := r.publicURL(); url != "" {
+			fmt.Fprintln(stdout, "Push events deploy it once GitHub reaches piway. On the repository's")
+			fmt.Fprintln(stdout, "Settings > Webhooks, point a webhook at")
+			fmt.Fprintln(stdout, "  "+url)
+			fmt.Fprintln(stdout, "with content type application/json and the same secret as webhook_secret.")
+		} else {
+			fmt.Fprintln(stdout, "Push events deploy it once GitHub can reach piway, and piway knows no public")
+			fmt.Fprintln(stdout, "address: the one you open the dashboard at may be tailnet-only. Publish the")
+			fmt.Fprintln(stdout, "webhook (Tailscale Funnel, docs/REMOTE.md) so piway finds it, or set")
+			fmt.Fprintln(stdout, "webhook_url in the config. Then, on the repository's Settings > Webhooks, point")
+			fmt.Fprintln(stdout, "a webhook at that address + /api/v1/webhooks/github, with content type")
+			fmt.Fprintln(stdout, "application/json and the same secret as webhook_secret.")
+		}
 		if r.cfg.WebhookSecret == "" {
 			fmt.Fprintln(stdout, "\nwebhook_secret is not set, so piway will refuse every delivery (docs/DEPLOY.md).")
 		}

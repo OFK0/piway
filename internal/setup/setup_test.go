@@ -301,6 +301,51 @@ func TestDoctorPrivateRepos(t *testing.T) {
 	wantStatus(t, r, map[string]Status{"repos": Fail})
 }
 
+func TestDoctorWebhooks(t *testing.T) {
+	const want = "https://pi.example.ts.net:10000/api/v1/webhooks/github"
+	env := testEnv()
+	env.Repos = []webhook.Target{
+		{Repo: "OFK0/good", Branch: "main"},
+		{Repo: "OFK0/good", Branch: "dev"}, // checked once
+		{Repo: "OFK0/wrong", Branch: "main"},
+		{Repo: "OFK0/none", Branch: "main"},
+		{Repo: "OFK0/hidden", Branch: "main"},
+	}
+	hooks := map[string][]string{
+		"OFK0/good":  {want},
+		"OFK0/wrong": {"https://pi.example.ts.net/api/v1/webhooks/github"}, // the tailnet-only address
+		"OFK0/none":  nil,
+	}
+	asked := 0
+	env.Hooks = func(_ context.Context, repo string) ([]string, error) {
+		asked++
+		if repo == "OFK0/hidden" {
+			return nil, errors.New("HTTP 404: Not Found")
+		}
+		return hooks[repo], nil
+	}
+	env.WebhookURL = func(context.Context) string { return want }
+	r := Doctor(context.Background(), healthyPi(), env)
+	wantStatus(t, r, map[string]Status{
+		"webhook-url": OK, "webhook:ofk0/good": OK, "webhook:ofk0/wrong": Fail, "webhook:ofk0/none": Warn, "webhook:ofk0/hidden": Skip,
+	})
+	if asked != 4 {
+		t.Errorf("GitHub asked %d times, want once per repository", asked)
+	}
+	if res, _ := r.Get("webhook:ofk0/wrong"); !strings.Contains(res.Fix, want) {
+		t.Errorf("fix %q does not say where to point it", res.Fix)
+	}
+
+	// Without a public address, one warning and no calls to GitHub.
+	asked = 0
+	env.WebhookURL = func(context.Context) string { return "" }
+	r = Doctor(context.Background(), healthyPi(), env)
+	wantStatus(t, r, map[string]Status{"webhook-url": Warn})
+	if _, ok := r.Get("webhook:ofk0/good"); ok || asked != 0 {
+		t.Errorf("checked webhooks with no address (asked %d)", asked)
+	}
+}
+
 func TestDoctorSystem(t *testing.T) {
 	h := healthyPi()
 	h.arch = "amd64"
