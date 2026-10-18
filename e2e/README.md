@@ -36,6 +36,10 @@ earlier ones deployed. `-run 'TestE2E/<name>'` selects them.
 A missing Docker daemon or dashboard dependencies skips the run locally but
 fails it when `CI` is set: a gate that skips everything proves nothing.
 
+`TestScale` is a separate test that deploys 20 apps at once and logs how piway
+copes (`make e2e E2E_RUN='TestScale$'`, about 35 minutes on a Pi 4). Its
+figures are in [PERFORMANCE.md](../docs/PERFORMANCE.md#twenty-apps).
+
 ## Running it on a Pi
 
 The engines (`piway-postgres`, `piway-mariadb`, `piway-redis`) and the

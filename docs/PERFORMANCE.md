@@ -56,6 +56,32 @@ Piway's own figures come from `/metrics` (`piway_process_*`).
 | 50 workers asking for 1 h (raw) | 0 failed; 93 requests/s; p50 0.50 s, p99 1.4 s | |
 | 50 workers asking for 48 h in 1 h steps (`1h` tier) | 0 failed; 754 requests/s; p50 43 ms | |
 
+## Twenty apps
+
+`TestScale` (`e2e/scale_test.go`, `make e2e E2E_RUN='TestScale$'`) deploys 20
+copies of the loadlab example (a Go app, 64 MiB and half a core each) on real
+Docker: a signed push webhook for each within 8 seconds, then it waits for
+every build and checks every stable address.
+
+| Measure | Result |
+| ------- | ------ |
+| 20 pushes accepted | 8.2 s (0.4 s each) |
+| All 20 built and released | 31 min 33 s, builds one at a time (about 95 s each; loadlab's layers were already cached) |
+| Every app healthy on its stable address | yes |
+| `GET /api/v1/apps` with 20 apps | p50 216 ms, p99 304 ms |
+| piway with no apps | 24 MB RSS, 16 goroutines, 19 descriptors |
+| piway with 20 apps | 26 MB RSS, 102 goroutines, 83 descriptors |
+| A minute later, at rest | 25 MB RSS, 60 goroutines, 62 descriptors, 0.004 CPU-seconds per second |
+
+- **piway itself barely grows**: 2 MB of RSS and 64 descriptors for 20 apps.
+  The goroutines fell from 102 to 60 within a minute; why was not looked into.
+- **The wait is the build.** One at a time is the design (a Pi 4 has four
+  cores and an SD card); the pushes themselves are quick and none is lost.
+  The queue holds 50 branches (`TestBurstOfPushes`).
+- **The apps list** asks Docker about every container, so it is the slowest
+  call here, and grows with the number of apps. It is fine for a dashboard
+  that asks every few seconds; if it matters, the answer is to cache it.
+
 ## API examples
 
 `internal/server/apidocs_test.go` reads the JSON examples out of
@@ -63,8 +89,8 @@ Piway's own figures come from `/metrics` (`piway_process_*`).
 compares their fields and types with what the code sends. A field renamed,
 retyped, added or removed in only one of the two fails `make test`.
 
-Not measured yet: bursts of webhooks and queued builds, 20 deployed apps,
-and the soak and chaos runs.
+Not measured yet: bursts of webhooks and queued builds, and the soak and
+chaos runs.
 
 ## Allocations
 
