@@ -50,7 +50,7 @@ Piway's own figures come from `/metrics` (`piway_process_*`).
 | Load | Result | piway |
 | ---- | ------ | ----- |
 | Idle | | 15 MB RSS, 17 goroutines, 22 descriptors |
-| 1000 WebSocket clients + 20 that never read, 30 s | 0 failed; every client got 30 or 31 of 30 snapshots; lag p50 43 ms, p99 533 ms | 65 MB RSS, 2056 goroutines, 1040 descriptors, 1.1 CPU-seconds per second of load |
+| 1000 WebSocket clients + 20 that never read, 30 s | 0 failed; every client got 30 or 31 snapshots in 30 s; lag p50 43 ms, p99 533 ms | 65 MB RSS, 2056 goroutines, 1040 descriptors, 0.15 CPU-seconds per second (4.4 s in 30 s) |
 | After the clients leave | | 66 MB RSS, 18 goroutines, 21 descriptors: nothing is left behind |
 | 50 workers asking for 24 h (`1m` tier) | 0 failed; 59 requests/s; p50 0.80 s, p99 1.6 s. One request alone takes 58 ms | 357 MB RSS at the peak, 144 MB 3 s later; CPU-bound on the four cores |
 | 50 workers asking for 1 h (raw) | 0 failed; 93 requests/s; p50 0.50 s, p99 1.4 s | |
