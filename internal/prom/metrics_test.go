@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,15 @@ func exposition(t *testing.T, s *agent.Snapshot) string {
 	t.Helper()
 	var w Writer
 	Collect(&w, s)
+	return render(t, &w)
+}
+
+// handlerExposition is what /metrics serves: the snapshot and the process.
+func handlerExposition(t *testing.T) string {
+	t.Helper()
+	var w Writer
+	Collect(&w, fullSnapshot())
+	Process(&w)
 	return render(t, &w)
 }
 
@@ -111,7 +121,7 @@ var (
 // TestExpositionRules checks the rules promtool enforces, so the test suite
 // catches a bad name even where promtool is not installed.
 func TestExpositionRules(t *testing.T) {
-	out := exposition(t, fullSnapshot())
+	out := handlerExposition(t)
 	types := map[string]string{}
 	series := map[string]bool{}
 	current := ""
@@ -160,7 +170,7 @@ func TestPromtool(t *testing.T) {
 		t.Skip("promtool not on PATH")
 	}
 	cmd := exec.Command(path, "check", "metrics")
-	cmd.Stdin = strings.NewReader(exposition(t, fullSnapshot()))
+	cmd.Stdin = strings.NewReader(handlerExposition(t))
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
@@ -176,5 +186,26 @@ func TestHandler(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "piway_build_info{") {
 		t.Errorf("body:\n%s", rec.Body)
+	}
+}
+
+func TestProcess(t *testing.T) {
+	var w Writer
+	Process(&w)
+	out := render(t, &w)
+	for _, name := range []string{
+		"piway_process_goroutines", "piway_process_heap_alloc_bytes", "piway_process_memory_bytes",
+		"piway_process_gc_cycles_total", "piway_process_gc_pause_seconds_total", "piway_process_cpu_seconds_total",
+	} {
+		if !strings.Contains(out, "\n"+name+" ") {
+			t.Errorf("%s missing:\n%s", name, out)
+		}
+	}
+	if runtime.GOOS == "linux" {
+		for _, name := range []string{"piway_process_open_fds", "piway_process_max_fds"} {
+			if !strings.Contains(out, "\n"+name+" ") {
+				t.Errorf("%s missing on Linux", name)
+			}
+		}
 	}
 }

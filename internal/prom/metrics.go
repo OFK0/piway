@@ -25,6 +25,7 @@ func Handler(latest func() *agent.Snapshot) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		var m Writer
 		Collect(&m, latest())
+		Process(&m)
 		// Render first, so a failure is a clean 500 rather than half a page.
 		var buf bytes.Buffer
 		if _, err := m.WriteTo(&buf); err != nil {
