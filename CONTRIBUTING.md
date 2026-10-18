@@ -144,6 +144,8 @@ Closes #10
 
 - `make lint` (gofmt + go vet) and `make test` must pass.
 - The race detector does not run on the Pi's 39-bit VMA kernel. `make test-race` runs in CI.
+- A bug fix comes with a test that fails without the fix. Write the test first, watch it fail, then fix; say so in the PR's `## Testing`.
+- A change must not make a benchmark allocate more per operation: CI runs `scripts/bench-allocs.sh` against the base branch and fails when allocations grow. Run it before you push: `scripts/bench-allocs.sh origin/main`.
 - Prefer table-driven tests. Use `httptest` for handlers. Bound every blocking wait in tests with a timeout so a bug fails the test instead of hanging it.
 - Accept interfaces where the consumer needs them, and define them on the consumer side.
 
