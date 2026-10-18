@@ -1,6 +1,7 @@
 package tsdb
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -8,8 +9,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ofk0/piway/internal/testfs"
 )
 
 func openStore(t testing.TB, dir string, opts Options) *Store {
@@ -608,4 +612,52 @@ func TestDeleteBefore(t *testing.T) {
 	if got := mustSelect(t, s, "a", 0, math.MaxInt64); len(got) != 5 {
 		t.Errorf("active segment lost: %d samples left, want 5", len(got))
 	}
+}
+
+// A disk that fills up: Append reports the error instead of panicking, the
+// records written before it stay readable, and once space is back the store
+// writes again, in a new segment, and reopens cleanly.
+func TestFullDisk(t *testing.T) {
+	testfs.Run(t, 256<<10, func(t *testing.T, dir string) {
+		filler := filepath.Join(dir, "filler")
+		if err := os.WriteFile(filler, make([]byte, 192<<10), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		db := filepath.Join(dir, "db")
+		s := openStore(t, db, Options{})
+
+		var stored int64
+		var failure error
+		for i := range int64(20_000) {
+			if failure = s.Append(i*1000, []Point{{"cpu.total", float64(i)}, {"mem.used", float64(i)}}); failure != nil {
+				break
+			}
+			stored++
+		}
+		if !errors.Is(failure, syscall.ENOSPC) {
+			t.Fatalf("after %d appends: %v, want ENOSPC", stored, failure)
+		}
+		if got := mustSelect(t, s, "cpu.total", math.MinInt64, math.MaxInt64); int64(len(got)) != stored {
+			t.Errorf("%d samples readable, %d appends succeeded", len(got), stored)
+		}
+		// Still full: asking again is an error, not a crash.
+		if err := s.Append(stored*1000, []Point{{"cpu.total", 1}}); err == nil {
+			t.Error("append on a full disk succeeded")
+		}
+
+		if err := os.Remove(filler); err != nil {
+			t.Fatal(err)
+		}
+		next := (stored + 10) * 1000
+		mustAppend(t, s, next, Point{"cpu.total", 7})
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		again := openStore(t, db, Options{})
+		got := mustSelect(t, again, "cpu.total", math.MinInt64, math.MaxInt64)
+		if int64(len(got)) != stored+1 || got[len(got)-1] != (Sample{T: next, V: 7}) {
+			t.Errorf("after reopening: %d samples, want %d ending at %d", len(got), stored+1, next)
+		}
+	})
 }

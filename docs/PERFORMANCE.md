@@ -78,8 +78,23 @@ real Docker, and both pass on the Pi:
 - `container-killed`: an OOM kill of an app. Docker restarts it, the address
   follows, and the "App crashed" alert is raised.
 
-Not done: a Docker or Caddy daemon restart (it needs root), a full disk,
-and the 24 to 72 hour soak. Not measured yet: 20 deployed apps.
+### Full disk
+
+`TestFullDisk` in `internal/tsdb`, `internal/history` and `internal/deploy`
+runs on a real 256 to 512 KB tmpfs (`internal/testfs`: the test binary starts
+again in a user and mount namespace, so no root is needed) and fills it, so
+the kernel answers ENOSPC:
+
+- **History**: `Append` returns the error and the records written before it
+  stay readable; a failed `Compact` loses no raw data and, once space is back,
+  rolls up the same minutes without duplicates; the store reopens cleanly.
+- **Builds**: a push that cannot be recorded is refused with the reason and
+  leaves no half-written record. A running build whose log cannot be written
+  goes on: it used to get the write error, which stops a `docker build`'s
+  output from being read and can block it (#159).
+
+Not done: a Docker or Caddy daemon restart (it needs root), and the 24 to
+72 hour soak. Not measured yet: 20 deployed apps.
 
 ## Allocations
 

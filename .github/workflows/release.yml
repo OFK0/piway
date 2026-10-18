@@ -63,6 +63,9 @@ jobs:
       - name: Test
         run: |
           make lint
+          # internal/testfs mounts a tmpfs in a user namespace, which
+          # Ubuntu 24.04 restricts by default.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           make test-race
           make web-lint
           make web-test

@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,10 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/ofk0/piway/internal/manifest"
+	"github.com/ofk0/piway/internal/testfs"
 	"github.com/ofk0/piway/internal/webhook"
 )
 
@@ -514,4 +517,44 @@ func TestOnFinish(t *testing.T) {
 	if strings.Join(got, " ") != "succeeded:guestbook failed:guestbook" {
 		t.Errorf("OnFinish saw %v", got)
 	}
+}
+
+// A full disk does not take the pipeline down: a push that cannot be
+// recorded is refused with the reason and leaves nothing half-written, a
+// running build whose log cannot be written still finishes, and once space
+// is back pushes are accepted and built again.
+func TestFullDisk(t *testing.T) {
+	testfs.Run(t, 512<<10, func(t *testing.T, dir string) {
+		builds := filepath.Join(dir, "builds")
+		h := start(t, builds, Options{})
+		running := push(t, h.p, "aaaaaaa1")
+		started(t, h.steps)
+
+		free := testfs.Fill(t, dir)
+		// The log of the running build cannot be written, but it goes on.
+		h.p.mu.Lock()
+		log := h.p.running.log
+		h.p.mu.Unlock()
+		output := bytes.Repeat([]byte("more output\n"), 8192)
+		if n, err := log.Write(output); err != nil || n != len(output) {
+			t.Errorf("a build's log on a full disk: wrote %d of %d, %v; the build would be stopped by it", n, len(output), err)
+		}
+
+		err := h.p.Deploy(webhook.Request{Repo: "OFK0/guestbook", Branch: "dev", Commit: "bbbbbbb2", CloneURL: "x"})
+		if !errors.Is(err, syscall.ENOSPC) {
+			t.Errorf("a push on a full disk: %v, want ENOSPC", err)
+		}
+		if leftovers, _ := filepath.Glob(filepath.Join(builds, "builds", "*.tmp")); len(leftovers) > 0 {
+			t.Errorf("half-written records left behind: %v", leftovers)
+		}
+
+		h.steps.release <- nil
+		waitState(t, h.p, running, Succeeded)
+
+		free()
+		id := push(t, h.p, "ccccccc3")
+		started(t, h.steps)
+		h.steps.release <- nil
+		waitState(t, h.p, id, Succeeded)
+	})
 }

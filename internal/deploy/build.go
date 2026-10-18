@@ -115,10 +115,14 @@ func (s store) save(b *Build) error {
 	}
 	// Write then rename, so a crash never leaves a half-written record.
 	tmp := s.metaPath(b.ID) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	err = os.WriteFile(tmp, data, 0o644)
+	if err == nil {
+		err = os.Rename(tmp, s.metaPath(b.ID))
 	}
-	return os.Rename(tmp, s.metaPath(b.ID))
+	if err != nil {
+		os.Remove(tmp) // a full disk must not also leave a stray file per attempt
+	}
+	return err
 }
 
 // load reads every record, oldest first.
