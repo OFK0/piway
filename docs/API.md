@@ -462,6 +462,11 @@ them, so no activity between scrapes is lost at any scrape interval.
 | `piway_disk_io_time_seconds_total` | counter | `device` | Time with at least one request in flight; `rate()` of it is the busy fraction. |
 | `piway_filesystem_{size,used,avail}_bytes` | gauge | `mountpoint` | Filesystem space. |
 | `piway_network_{receive,transmit}_{bytes,packets,errors,drop}_total` | counter | `interface` | Per interface, excluding loopback and Docker `veth*`. |
+| `piway_process_goroutines` | gauge | | Goroutines piway has. A count that only grows is a leak. |
+| `piway_process_open_fds`, `piway_process_max_fds` | gauge | | File descriptors open, and the soft limit. Left out where `/proc/self/fd` is missing. |
+| `piway_process_heap_alloc_bytes`, `piway_process_memory_bytes` | gauge | | Live heap, and all memory the Go runtime has taken from the system. |
+| `piway_process_gc_cycles_total`, `piway_process_gc_pause_seconds_total` | counter | | Garbage collection cycles, and the time they stopped the program. |
+| `piway_process_cpu_seconds_total` | counter | | CPU time piway itself has used, user and system. |
 
 - A metric whose collector is unavailable or failed this round is left out,
   as `null` is in the JSON API. Before the first round, only
