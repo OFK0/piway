@@ -24,8 +24,7 @@ PIWAY_SIMULATE_DAYS=30 go test ./internal/history -run SimulateDays -v -timeout 
   starts to delete (day 2 and day 8). The hourly tier grows by about
   55 KB a day, so a year is about 20 MB: roughly 95 MB in all.
 - **Compaction** took 2.9 ms on average over 259,200 runs. The slowest run
-  took 2.1 s, which is the first run after the clock jumps by a minute
-  boundary and an hour boundary together plus a retention delete.
+  took 2.1 s; what made it slow was not looked into.
 - **Written**: 2.15 MB per simulated hour from the history's own files. This
   is the data; the card also sees ext4 journal traffic, measured in
   [STORAGE.md](STORAGE.md#measured-bytes-written-per-hour).
