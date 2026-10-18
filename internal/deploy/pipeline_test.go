@@ -515,3 +515,133 @@ func TestOnFinish(t *testing.T) {
 		t.Errorf("OnFinish saw %v", got)
 	}
 }
+
+// A push whose commit sorts before the previous one's, in the same second
+// (or after the clock stepped back), still gets a fresh ID that sorts after
+// the last; newID used to loop forever, holding the pipeline's lock.
+func TestIDsSortAfterTheLastWhateverTheCommit(t *testing.T) {
+	now := time.Date(2026, 10, 14, 20, 15, 0, 0, time.UTC)
+	p, err := New(Options{Dir: t.TempDir(), Steps: newFake(), now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan []string)
+	go func() {
+		var ids []string
+		for _, c := range []string{"f000000", "0000001", "0000001", "a000000"} {
+			ids = append(ids, p.newID(c))
+		}
+		now = now.Add(-time.Minute)
+		ids = append(ids, p.newID("0000002"))
+		done <- ids
+	}()
+	select {
+	case ids := <-done:
+		for i := 1; i < len(ids); i++ {
+			if !(ids[i-1] < ids[i]) {
+				t.Errorf("ids %q then %q do not sort in order", ids[i-1], ids[i])
+			}
+		}
+	case <-time.After(wait):
+		t.Fatal("newID does not return")
+	}
+}
+
+// gatedSteps holds every image build until gate is closed, then lets all
+// of them through.
+type gatedSteps struct {
+	*fakeSteps
+	gate chan struct{}
+}
+
+func (g gatedSteps) Image(ctx context.Context, _ *manifest.Manifest, _, image string, out io.Writer) error {
+	g.started <- image
+	select {
+	case <-g.gate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// A burst of pushes to many branches while a build runs: the queue stays
+// within its bound, a push that does not fit is refused rather than lost
+// silently, and once the build finishes every accepted push ends up built
+// or superseded, none stuck.
+func TestBurstOfPushes(t *testing.T) {
+	fake := newFake()
+	fake.started = make(chan string, 1000)
+	steps := gatedSteps{fakeSteps: fake, gate: make(chan struct{})}
+	h := start(t, t.TempDir(), Options{Steps: steps})
+
+	push(t, h.p, "0000000")
+	started(t, fake) // the queue fills behind a running build
+
+	const workers, perWorker, branches = 8, 100, 80
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var refused int
+	for w := range workers {
+		wg.Go(func() {
+			for i := range perWorker {
+				n := w*perWorker + i
+				err := h.p.Deploy(webhook.Request{
+					Repo: "OFK0/guestbook", Branch: fmt.Sprintf("b%d", n%branches),
+					Commit: fmt.Sprintf("%07x", n+1), CloneURL: "x",
+				})
+				if err == nil {
+					continue
+				}
+				if !strings.Contains(err.Error(), "already waiting") {
+					t.Errorf("push %d: %v", n, err)
+				}
+				mu.Lock()
+				refused++
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+
+	queued := 0
+	for _, b := range h.p.List() {
+		if b.State == Queued {
+			queued++
+		}
+	}
+	if queued > maxQueued {
+		t.Errorf("%d builds queued, bound is %d", queued, maxQueued)
+	}
+	if refused == 0 {
+		t.Errorf("%d branches never filled a queue of %d", branches, maxQueued)
+	}
+
+	close(steps.gate)
+	deadline := time.Now().Add(wait)
+	for {
+		busy := 0
+		for _, b := range h.p.List() {
+			if b.State == Queued || b.State == Running {
+				busy++
+			}
+		}
+		if busy == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d builds still queued or running after the burst", busy)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, b := range h.p.List() {
+		switch b.State {
+		case Succeeded:
+		case Cancelled:
+			if !strings.Contains(b.Error, "superseded by") {
+				t.Errorf("build %s cancelled for %q", b.ID, b.Error)
+			}
+		default:
+			t.Errorf("build %s ended %s (%s)", b.ID, b.State, b.Error)
+		}
+	}
+}
