@@ -43,6 +43,10 @@ and, with `E2E_RESTART_DOCKER=1`, the Docker daemon with
 `systemctl --user restart docker`, which stops every container on that daemon
 for a moment. See [PERFORMANCE.md](../docs/PERFORMANCE.md#daemon-restarts).
 
+`TestScale` is a separate test that deploys 20 apps at once and logs how piway
+copes (`make e2e E2E_RUN='TestScale$'`, about 35 minutes on a Pi 4). Its
+figures are in [PERFORMANCE.md](../docs/PERFORMANCE.md#twenty-apps).
+
 ## Running it on a Pi
 
 The engines (`piway-postgres`, `piway-mariadb`, `piway-redis`) and the
