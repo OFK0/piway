@@ -495,15 +495,30 @@ func dashboard(t *testing.T, p *piway) {
 	if _, err := os.Stat(filepath.Join(dir, "node_modules", "playwright")); err != nil {
 		skipUnlessCI(t, "e2e/dashboard has no node_modules: run npm ci there (make e2e-deps)")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "node", "check.mjs")
-	cmd.WaitDelay = 10 * time.Second
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PIWAY_URL=http://"+p.addr)
-	out, err := cmd.CombinedOutput()
-	t.Logf("%s", out)
-	if err != nil {
-		t.Fatalf("dashboard checks failed: %v", err)
+	runNode := func(script string, env ...string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "node", script)
+		cmd.WaitDelay = 10 * time.Second
+		cmd.Dir = dir
+		cmd.Env = append(append(os.Environ(), "PIWAY_URL=http://"+p.addr), env...)
+		out, err := cmd.CombinedOutput()
+		t.Logf("%s", out)
+		if err != nil {
+			t.Fatalf("%s failed: %v", script, err)
+		}
 	}
+	runNode("check.mjs")
+
+	// Then what a person does, signed in: set a password (a running piway
+	// picks it up at once) and run the flows against the app loadlab.
+	const password = "e2e-dashboard-password"
+	set := exec.Command(p.bin, "-set-password")
+	set.Env = p.env()
+	set.Stdin = strings.NewReader(password + "\n")
+	if out, err := set.CombinedOutput(); err != nil {
+		t.Fatalf("piway -set-password: %v: %s", err, out)
+	}
+	runNode("flows.mjs", "PIWAY_PASSWORD="+password, "PIWAY_APP=loadlab", "PIWAY_SECRET=LOADLAB_TOKEN")
 }

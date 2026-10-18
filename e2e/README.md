@@ -31,7 +31,7 @@ earlier ones deployed. `-run 'TestE2E/<name>'` selects them.
 | `db-redis` | The same for the chat app's history in Redis. |
 | `kill9` | `kill -9` of piway leaves the apps running; the next piway serves them again, keeps its builds, and can deploy. |
 | `private-repo` | A private repository deploys over SSH with a deploy key (#108). Skipped unless `E2E_PRIVATE_REPO` (`owner/name`, with a `piway.yaml` at its root, on `main`) and `E2E_DEPLOY_KEY` (the private key, with the public half added as a read-only deploy key) are set. In the workflow they are repository secrets; without them the scenario is skipped. |
-| `dashboard` | `dashboard/check.mjs`, with Playwright, against the running piway: page changes keep the document (no reload), skeletons show while data loads, numbers glide and jump with reduced motion, and no page shifts its layout (CLS under 0.02) while live data arrives. |
+| `dashboard` | `dashboard/check.mjs`, with Playwright, against the running piway: page changes keep the document (no reload), skeletons show while data loads, numbers glide and jump with reduced motion, and no page shifts its layout (CLS under 0.02) while live data arrives. Then it sets a dashboard password on the running piway and runs `dashboard/flows.mjs`, what a person does when signed in: a wrong password is refused and the right one opens the dashboard, Sign out returns to the form, the overview says Live and Reconnecting when the stream closes, changing loadlab's secret shows Restart needed and Restart clears it, and five pages fit a 390 px phone (#164). |
 
 A missing Docker daemon or dashboard dependencies skips the run locally but
 fails it when `CI` is set: a gate that skips everything proves nothing.
