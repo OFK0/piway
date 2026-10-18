@@ -36,6 +36,11 @@ earlier ones deployed. `-run 'TestE2E/<name>'` selects them.
 A missing Docker daemon or dashboard dependencies skips the run locally but
 fails it when `CI` is set: a gate that skips everything proves nothing.
 
+`TestDaemons` restarts Caddy (its own process, so it needs `caddy` in `PATH`)
+and, with `E2E_RESTART_DOCKER=1`, the Docker daemon with
+`systemctl --user restart docker`, which stops every container on that daemon
+for a moment. See [PERFORMANCE.md](../docs/PERFORMANCE.md#daemon-restarts).
+
 ## Running it on a Pi
 
 The engines (`piway-postgres`, `piway-mariadb`, `piway-redis`) and the

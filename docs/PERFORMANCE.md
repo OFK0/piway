@@ -56,6 +56,24 @@ Piway's own figures come from `/metrics` (`piway_process_*`).
 | 50 workers asking for 1 h (raw) | 0 failed; 93 requests/s; p50 0.50 s, p99 1.4 s | |
 | 50 workers asking for 48 h in 1 h steps (`1h` tier) | 0 failed; 754 requests/s; p50 43 ms | |
 
+## Daemon restarts
+
+`TestDaemons` (`e2e/daemons_test.go`, `make e2e E2E_RUN='TestDaemons$'`)
+restarts what piway depends on while an app runs, on a Pi 4 with rootless
+Docker. Both scenarios pass (382 s in all, most of it the app's build and a
+redeploy).
+
+- **Caddy**: killed with `kill -9`, then started again with an empty config.
+  The app keeps answering on its own address while Caddy is away; piway logs
+  "caddy unreachable" once, puts the routes back by itself ("caddy reachable
+  again"), and a redeploy after that still works. The test starts its own
+  Caddy on its own admin port.
+- **Docker**: `systemctl --user restart docker` (off unless
+  `E2E_RESTART_DOCKER=1`, since it stops every container on the daemon for a
+  moment). Docker restarts the app, piway follows it to its new port, the
+  route through Caddy works, piway itself keeps answering, and a redeploy
+  works.
+
 ## API examples
 
 `internal/server/apidocs_test.go` reads the JSON examples out of

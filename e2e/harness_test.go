@@ -38,17 +38,19 @@ type piway struct {
 	secrets map[string]string // app -> secret value written before it deploys
 	apps    []string          // apps deployed, for cleanup
 	repos   map[string]string // owner/name -> directory
+	extra   []string          // more environment for piway, such as PIWAY_PROXY_DOMAIN
 }
 
 func (p *piway) url(path string) string { return "http://" + p.addr + path }
 func (p *piway) cfgDir() string         { return filepath.Join(p.home, ".config", "piway") }
 
 func (p *piway) env() []string {
-	return append(os.Environ(),
+	env := append(os.Environ(),
 		"HOME="+p.home,
 		"XDG_CONFIG_HOME="+filepath.Join(p.home, ".config"),
 		"XDG_STATE_HOME="+filepath.Join(p.home, ".state"),
 	)
+	return append(env, p.extra...)
 }
 
 // findBinary returns the piway binary to test: $PIWAY_BIN, else bin/piway.
