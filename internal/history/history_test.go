@@ -1,11 +1,15 @@
 package history
 
 import (
+	"errors"
 	"math"
+	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/ofk0/piway/internal/testfs"
 	"github.com/ofk0/piway/internal/tsdb"
 )
 
@@ -376,4 +380,39 @@ func TestQueryPointLimit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A disk that fills up while compacting: the rollup fails with the reason,
+// no raw data is lost, and once space is back the next Compact rolls up
+// the same minutes without duplicates.
+func TestFullDisk(t *testing.T) {
+	testfs.Run(t, 512<<10, func(t *testing.T, dir string) {
+		c := &clock{t: t0}
+		h := open(t, filepath.Join(dir, "history"), c, DefaultRetention())
+		for i := range 150 {
+			for _, series := range []string{"cpu", "mem", "temp"} {
+				appendAt(t, h, t0.Add(time.Duration(i)*time.Second), series, float64(i))
+			}
+		}
+
+		free := testfs.Fill(t, dir)
+		c.t = t0.Add(3 * time.Minute)
+		if err := h.Compact(); !errors.Is(err, syscall.ENOSPC) {
+			t.Fatalf("Compact on a full disk: %v, want ENOSPC", err)
+		}
+		raw, err := h.Raw().Select("cpu", math.MinInt64, math.MaxInt64)
+		if err != nil || len(raw) != 150 {
+			t.Fatalf("raw samples after a failed Compact: %d, %v; want 150", len(raw), err)
+		}
+
+		free()
+		compact(t, h)
+		for _, series := range []string{"cpu", "mem", "temp"} {
+			got, ok := rollupAt(t, h.Minute(), series, t0.Add(time.Minute))
+			want := agg{min: 60, max: 119, sum: (60 + 119) * 60 / 2, n: 60}
+			if !ok || got != want {
+				t.Errorf("%s, minute 1 = %+v, want %+v", series, got, want)
+			}
+		}
+	})
 }

@@ -14,6 +14,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make lint
+      # The full-disk tests mount a small tmpfs in a user namespace
+      # (internal/testfs); Ubuntu 24.04 restricts those by default.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: make test-race
       - name: build linux/arm64
         run: GOOS=linux GOARCH=arm64 make build-go

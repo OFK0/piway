@@ -12,6 +12,7 @@ type buildLog struct {
 	f      *os.File
 	subs   map[chan []byte]struct{}
 	closed bool
+	lost   error // the first error writing the file: the log is incomplete
 }
 
 func openLog(path string) (*buildLog, error) {
@@ -25,22 +26,34 @@ func openLog(path string) (*buildLog, error) {
 // Write appends p and sends a copy to every subscriber. A subscriber that
 // has fallen 256 writes behind is dropped (its channel closed) rather than
 // slowing the build down; it can reread the file.
+//
+// A file that cannot be written (the disk is full) does not fail the write:
+// the process writing here, a docker build, would stop reading its output
+// and block. Subscribers still get everything; the first error is kept in
+// lost.
 func (l *buildLog) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	n, err := l.f.Write(p)
-	if n > 0 {
-		chunk := append([]byte(nil), p[:n]...)
-		for ch := range l.subs {
-			select {
-			case ch <- chunk:
-			default:
-				delete(l.subs, ch)
-				close(ch)
-			}
+	if _, err := l.f.Write(p); err != nil && l.lost == nil {
+		l.lost = err
+	}
+	chunk := append([]byte(nil), p...)
+	for ch := range l.subs {
+		select {
+		case ch <- chunk:
+		default:
+			delete(l.subs, ch)
+			close(ch)
 		}
 	}
-	return n, err
+	return len(p), nil
+}
+
+// incomplete is the first error that kept output out of the file, if any.
+func (l *buildLog) incomplete() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.lost
 }
 
 // subscribe returns everything written so far and a channel of what comes
