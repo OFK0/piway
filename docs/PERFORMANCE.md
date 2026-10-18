@@ -32,6 +32,33 @@ PIWAY_SIMULATE_DAYS=30 go test ./internal/history -run SimulateDays -v -timeout 
 The simulation does not use the real clock, so `flush_interval` does not
 matter in it: a run measures how much data is written, not how often.
 
+## Load
+
+A piway started apart from the real one (see [DEVELOPMENT.md](DEVELOPMENT.md#run-your-build)),
+on a history of two days made by `TestSimulateDays` (60 series). The load
+generators run on the same Pi, so they take CPU from piway: the latencies
+are worse than a client on another machine would see.
+
+```sh
+PIWAY_SIMULATE_DAYS=2 PIWAY_SIMULATE_DIR=/tmp/piway-load go test ./internal/history -run SimulateDays -timeout 0
+go run ./cmd/wsload -url ws://127.0.0.1:18080/api/v1/stream -clients 1000 -slow 20 -duration 30s
+go run ./cmd/apiload -url 'http://127.0.0.1:18080/api/v1/series?name=cpu_usage_percent&from=-24h' -workers 50 -duration 20s
+```
+
+Piway's own figures come from `/metrics` (`piway_process_*`).
+
+| Load | Result | piway |
+| ---- | ------ | ----- |
+| Idle | | 15 MB RSS, 17 goroutines, 22 descriptors |
+| 1000 WebSocket clients + 20 that never read, 30 s | 0 failed; every client got 30 or 31 snapshots in 30 s; lag p50 43 ms, p99 533 ms | 65 MB RSS, 2056 goroutines, 1040 descriptors, 0.15 CPU-seconds per second (4.4 s in 30 s) |
+| After the clients leave | | 66 MB RSS, 18 goroutines, 21 descriptors: nothing is left behind |
+| 50 workers asking for 24 h (`1m` tier) | 0 failed; 59 requests/s; p50 0.80 s, p99 1.6 s. One request alone takes 58 ms | 357 MB RSS at the peak, 144 MB 3 s later; CPU-bound on the four cores |
+| 50 workers asking for 1 h (raw) | 0 failed; 93 requests/s; p50 0.50 s, p99 1.4 s | |
+| 50 workers asking for 48 h in 1 h steps (`1h` tier) | 0 failed; 754 requests/s; p50 43 ms | |
+
+Not measured yet: bursts of webhooks and queued builds, 20 deployed apps,
+and the soak and chaos runs.
+
 ## Allocations
 
 `scripts/bench-allocs.sh BASE_REF` runs every benchmark on `BASE_REF` and on

@@ -194,7 +194,7 @@ func TestProcess(t *testing.T) {
 	Process(&w)
 	out := render(t, &w)
 	for _, name := range []string{
-		"piway_process_goroutines", "piway_process_heap_alloc_bytes", "piway_process_memory_bytes",
+		"piway_process_goroutines", "piway_process_heap_alloc_bytes", "piway_process_go_memory_bytes",
 		"piway_process_gc_cycles_total", "piway_process_gc_pause_seconds_total", "piway_process_cpu_seconds_total",
 	} {
 		if !strings.Contains(out, "\n"+name+" ") {
@@ -202,7 +202,7 @@ func TestProcess(t *testing.T) {
 		}
 	}
 	if runtime.GOOS == "linux" {
-		for _, name := range []string{"piway_process_open_fds", "piway_process_max_fds"} {
+		for _, name := range []string{"piway_process_open_fds", "piway_process_max_fds", "piway_process_resident_memory_bytes"} {
 			if !strings.Contains(out, "\n"+name+" ") {
 				t.Errorf("%s missing on Linux", name)
 			}

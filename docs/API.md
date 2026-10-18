@@ -464,7 +464,8 @@ them, so no activity between scrapes is lost at any scrape interval.
 | `piway_network_{receive,transmit}_{bytes,packets,errors,drop}_total` | counter | `interface` | Per interface, excluding loopback and Docker `veth*`. |
 | `piway_process_goroutines` | gauge | | Goroutines piway has. A count that only grows is a leak. |
 | `piway_process_open_fds`, `piway_process_max_fds` | gauge | | File descriptors open, and the soft limit. Left out where `/proc/self/fd` is missing. |
-| `piway_process_heap_alloc_bytes`, `piway_process_memory_bytes` | gauge | | Live heap, and all memory the Go runtime has taken from the system. |
+| `piway_process_resident_memory_bytes` | gauge | | Memory piway holds in RAM (RSS). The one to watch for a leak. Left out where `/proc/self/statm` is missing. |
+| `piway_process_heap_alloc_bytes`, `piway_process_go_memory_bytes` | gauge | | Live heap, and the address space the Go runtime has obtained, which can be far above what is in RAM. |
 | `piway_process_gc_cycles_total`, `piway_process_gc_pause_seconds_total` | counter | | Garbage collection cycles, and the time they stopped the program. |
 | `piway_process_cpu_seconds_total` | counter | | CPU time piway itself has used, user and system. |
 

@@ -21,6 +21,10 @@ import (
 //
 //	PIWAY_SIMULATE_DAYS=30 go test ./internal/history -run SimulateDays -v -timeout 0
 //
+// With PIWAY_SIMULATE_DIR=<dir> the history is written there, ending now,
+// and kept: open it with piway -data-dir <dir>. That is the data the load
+// tests of docs/PERFORMANCE.md query.
+//
 // The figures are in docs/PERFORMANCE.md. Written bytes come from
 // /proc/self/io, so they count only on Linux, and the test process's own
 // writes, which are the history's alone.
@@ -31,6 +35,12 @@ func TestSimulateDays(t *testing.T) {
 	}
 	dir := t.TempDir()
 	c := &clock{t: t0}
+	if keep := os.Getenv("PIWAY_SIMULATE_DIR"); keep != "" {
+		// Leave the history for a piway to open: it must end now, so a
+		// query for the last hours finds it.
+		dir = keep
+		c.t = time.Now().Add(-time.Duration(days) * 24 * time.Hour).Truncate(time.Hour)
+	}
 	h := open(t, dir, c, Retention{})
 	rng := rand.New(rand.NewPCG(1, 2))
 
@@ -41,6 +51,7 @@ func TestSimulateDays(t *testing.T) {
 		series[i] = fmt.Sprintf("series_%02d", i)
 		vals[i] = rng.Float64() * 100
 	}
+	series[0] = "cpu_usage_percent" // one that the dashboard and the load tests ask for
 	points := make([]tsdb.Point, len(series))
 
 	writtenAtStart := writeBytes()
