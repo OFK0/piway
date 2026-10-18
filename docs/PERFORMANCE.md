@@ -56,6 +56,13 @@ Piway's own figures come from `/metrics` (`piway_process_*`).
 | 50 workers asking for 1 h (raw) | 0 failed; 93 requests/s; p50 0.50 s, p99 1.4 s | |
 | 50 workers asking for 48 h in 1 h steps (`1h` tier) | 0 failed; 754 requests/s; p50 43 ms | |
 
+## API examples
+
+`internal/server/apidocs_test.go` reads the JSON examples out of
+[API.md](API.md) (`/healthz`, snapshot, series, alerts, `Build`, `App`) and
+compares their fields and types with what the code sends. A field renamed,
+retyped, added or removed in only one of the two fails `make test`.
+
 Not measured yet: bursts of webhooks and queued builds, 20 deployed apps,
 and the soak and chaos runs.
 
