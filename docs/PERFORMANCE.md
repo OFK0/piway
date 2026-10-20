@@ -63,8 +63,23 @@ Piway's own figures come from `/metrics` (`piway_process_*`).
 compares their fields and types with what the code sends. A field renamed,
 retyped, added or removed in only one of the two fails `make test`.
 
-Not measured yet: bursts of webhooks and queued builds, 20 deployed apps,
-and the soak and chaos runs.
+## Bursts and chaos
+
+`TestBurstOfPushes` (`internal/deploy`) pushes 800 times to 80 branches
+while a build runs: the queue stays within its bound of 50, pushes that do
+not fit are refused with an error, and nothing is left queued or running.
+It found that two pushes in the same second could freeze the pipeline (#156).
+
+Two end-to-end scenarios ([e2e/README.md](../e2e/README.md)) break things on
+real Docker, and both pass on the Pi:
+
+- `kill9-build`: `kill -9` of piway during a build. The app keeps serving, the
+  build is marked failed as interrupted, and the next piway deploys.
+- `container-killed`: an OOM kill of an app. Docker restarts it, the address
+  follows, and the "App crashed" alert is raised.
+
+Not done: a Docker or Caddy daemon restart (it needs root), a full disk,
+and the 24 to 72 hour soak. Not measured yet: 20 deployed apps.
 
 ## Allocations
 

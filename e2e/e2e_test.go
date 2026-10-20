@@ -51,7 +51,7 @@ func secretValue(app string) string { return "e2e-secret-" + app }
 // TestE2E runs the scenarios in order against one piway: later ones use
 // what earlier ones deployed. Select some with -run 'TestE2E/(deploy-loadlab|traffic)': the
 // subtests are deploy-<app>, volume, traffic, rollback, secrets, db-mariadb,
-// db-redis, kill9, private-repo and dashboard.
+// db-redis, kill9, kill9-build, container-killed, private-repo and dashboard.
 func TestE2E(t *testing.T) {
 	requireDocker(t)
 	p := newPiway(t)
@@ -87,6 +87,8 @@ func TestE2E(t *testing.T) {
 	t.Run("db-mariadb", func(t *testing.T) { databaseMariaDB(t, p) })
 	t.Run("db-redis", func(t *testing.T) { databaseRedis(t, p) })
 	t.Run("kill9", func(t *testing.T) { killNine(t, p) })
+	t.Run("kill9-build", func(t *testing.T) { killNineDuringBuild(t, p) })
+	t.Run("container-killed", func(t *testing.T) { containerKilled(t, p) })
 	t.Run("private-repo", func(t *testing.T) { privateRepo(t, p) })
 	t.Run("dashboard", func(t *testing.T) { dashboard(t, p) })
 }
@@ -460,6 +462,82 @@ func killNine(t *testing.T, p *piway) {
 	if code, _ := get(t, base+"/healthz"); code != 200 {
 		t.Errorf("after a redeploy by the new piway: %d", code)
 	}
+}
+
+// killNineDuringBuild kills piway while it builds a new version of
+// loadlab. The app keeps serving the version it had; the new piway marks
+// the build as interrupted rather than leaving it running, and deploys.
+func killNineDuringBuild(t *testing.T, p *piway) {
+	base := p.appURL("loadlab")
+	var queued build
+	if code, err := p.api("POST", "/api/v1/apps/loadlab/redeploy", nil, &queued); err != nil || code != 202 {
+		t.Fatalf("redeploy loadlab: %d %v", code, err)
+	}
+	eventually(t, "the build to start", time.Minute, func() string {
+		var b build
+		if _, err := p.api("GET", "/api/v1/builds/"+queued.ID, nil, &b); err != nil {
+			return err.Error()
+		}
+		if b.State != "running" {
+			return "build is " + b.State
+		}
+		return ""
+	})
+	p.stop(true)
+	p.start()
+
+	var b build
+	if _, err := p.api("GET", "/api/v1/builds/"+queued.ID, nil, &b); err != nil {
+		t.Fatal(err)
+	}
+	if b.State != "failed" || !strings.Contains(b.Error, "interrupted") {
+		t.Errorf("the build killed with piway: %s (%s), want failed as interrupted", b.State, b.Error)
+	}
+	eventually(t, "loadlab after kill -9 in a build", 30*time.Second, func() string {
+		if code, _, err := tryGet(base + "/healthz"); err != nil || code != 200 {
+			return fmt.Sprintf("status %d %v", code, err)
+		}
+		return ""
+	})
+	redeploy(t, p, "loadlab")
+	if code, _ := get(t, base+"/healthz"); code != 200 {
+		t.Errorf("after a redeploy by the new piway: %d", code)
+	}
+}
+
+// containerKilled has loadlab allocate until the kernel OOM-kills it (the
+// Pi's swap means 400 MB against run.memory of 128 MiB). Docker restarts it
+// on a new port; the stable address follows and piway raises "App crashed"
+// (#132). It is not docker kill: that counts as a manual stop, which an
+// unless-stopped container is not restarted from.
+func containerKilled(t *testing.T, p *piway) {
+	base := p.appURL("loadlab")
+	started := func() string {
+		out, _ := exec.Command("docker", "ps", "-q", "--filter", "label=piway.app=loadlab", "--filter", "status=running").Output()
+		return strings.TrimSpace(string(out))
+	}
+	before := started()
+	if before == "" {
+		t.Fatal("loadlab has no running container")
+	}
+	// The app dies mid-request, so an error here is the point.
+	client := &http.Client{Timeout: 30 * time.Second}
+	if resp, err := client.Post(base+"/mem?mb=400&seconds=30", "", nil); err == nil {
+		resp.Body.Close()
+	}
+	eventually(t, "loadlab after its container was killed", 2*time.Minute, func() string {
+		if code, _, err := tryGet(base + "/healthz"); err != nil || code != 200 {
+			return fmt.Sprintf("status %d %v", code, err)
+		}
+		return ""
+	})
+	eventually(t, "the App crashed alert", time.Minute, func() string {
+		_, body, err := tryGet(p.url("/api/v1/alerts"))
+		if err != nil || !strings.Contains(body, "App crashed") {
+			return fmt.Sprintf("alerts: %v %.200s", err, body)
+		}
+		return ""
+	})
 }
 
 // privateRepo deploys a real private repository over SSH with a deploy

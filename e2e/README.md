@@ -30,6 +30,8 @@ earlier ones deployed. `-run 'TestE2E/<name>'` selects them.
 | `db-mariadb` | A note in the PHP app is backed up (`piway db backup`), deleted, and restored (`piway db restore`) (#114). |
 | `db-redis` | The same for the chat app's history in Redis. |
 | `kill9` | `kill -9` of piway leaves the apps running; the next piway serves them again, keeps its builds, and can deploy. |
+| `kill9-build` | `kill -9` of piway while it builds: the app keeps serving its version, the build is marked failed as interrupted, and the next piway deploys. |
+| `container-killed` | loadlab allocates until the kernel OOM-kills it (a real crash; `docker kill` is a manual stop and is not restarted): Docker restarts it, the stable address follows and "App crashed" is raised (#132). |
 | `private-repo` | A private repository deploys over SSH with a deploy key (#108). Skipped unless `E2E_PRIVATE_REPO` (`owner/name`, with a `piway.yaml` at its root, on `main`) and `E2E_DEPLOY_KEY` (the private key, with the public half added as a read-only deploy key) are set. In the workflow they are repository secrets; without them the scenario is skipped. |
 | `dashboard` | `dashboard/check.mjs`, with Playwright, against the running piway: page changes keep the document (no reload), skeletons show while data loads, numbers glide and jump with reduced motion, and no page shifts its layout (CLS under 0.02) while live data arrives. |
 
