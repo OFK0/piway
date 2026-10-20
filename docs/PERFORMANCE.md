@@ -82,6 +82,33 @@ every build and checks every stable address.
   call here, and grows with the number of apps. It is fine for a dashboard
   that asks every few seconds; if it matters, the answer is to cache it.
 
+## Soak
+
+`TestSoak` (`e2e/soak_test.go`) keeps an isolated piway busy and reads its
+own process every five minutes. It ran three example apps (loadlab,
+thumbnailer, docs-site) with 20 dashboard clients on the WebSocket stream, a
+history query a second, a request to each app every 250 ms, and a redeploy of
+each app every 30 minutes.
+
+**It ran for 22.5 hours of the 24 planned**: the Pi was shut down at that
+point. The test never reached its own verdict, so the figures below apply its
+rule to the readings it had written (251, the first hour left out as warm-up):
+the median of the last quarter may not exceed the first quarter's by more
+than 25% of RSS (and 10 MB), 20 goroutines or 20 descriptors.
+
+| Measure | First quarter (median) | Last quarter (median) | Whole run |
+| ------- | ---------------------- | --------------------- | --------- |
+| RSS | 30.4 MB | 29.6 MB | 26.7 to 33.1 MB, trend -0.02 MB/h |
+| Goroutines | 68 | 68 | 68 to 74 |
+| Descriptors | 50 | 50 | 50 to 54 |
+
+- **Flat**: nothing grew. The highs are the moments around a redeploy.
+- **All three apps answered at every reading.**
+- **CPU**: 0.073 cores on average, with 41,141 garbage collection cycles in
+  22.5 hours.
+- A soak of 24 to 72 hours was the aim; this is shorter, and a longer run
+  would need a machine that stays on.
+
 ## API examples
 
 `internal/server/apidocs_test.go` reads the JSON examples out of
@@ -89,8 +116,7 @@ every build and checks every stable address.
 compares their fields and types with what the code sends. A field renamed,
 retyped, added or removed in only one of the two fails `make test`.
 
-Not measured yet: bursts of webhooks and queued builds, and the soak and
-chaos runs.
+Not measured yet: bursts of webhooks and queued builds, and the chaos runs.
 
 ## Allocations
 
