@@ -184,15 +184,23 @@ func (p *Pipeline) enqueueLocked(b *Build) error {
 	return nil
 }
 
-// newID is sortable by queue time and unique: 20261014T201502Z-0123abc.
+// newID is sortable by queue time and unique: 20261014T201502Z-0123abc. A
+// later push in the same second, or after the clock stepped back, takes a
+// counter after the time (20261014T201502Z.000002-0123abc): "." sorts after
+// "-", so it follows every plain ID of that second whatever its commit.
 func (p *Pipeline) newID(commit string) string {
 	short := commit
 	if len(short) > 7 {
 		short = short[:7]
 	}
-	id := p.opts.now().UTC().Format("20060102T150405Z") + "-" + short
+	const stamp = "20060102T150405Z"
+	ts := p.opts.now().UTC().Format(stamp)
+	if last := p.lastID; len(last) >= len(stamp) && last[:len(stamp)] > ts {
+		ts = last[:len(stamp)]
+	}
+	id := ts + "-" + short
 	for n := 2; id <= p.lastID || p.builds[id] != nil; n++ {
-		id = fmt.Sprintf("%s-%s.%d", p.opts.now().UTC().Format("20060102T150405Z"), short, n)
+		id = fmt.Sprintf("%s.%06d-%s", ts, n, short)
 	}
 	p.lastID = id
 	return id
