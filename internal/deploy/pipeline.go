@@ -286,6 +286,9 @@ func (p *Pipeline) run(parent context.Context, id string) {
 	}
 	p.running = nil
 	log.close()
+	if err := log.incomplete(); err != nil {
+		p.log.Warn("build log incomplete", "build", id, "err", err)
+	}
 	p.log.Info("build finished", "build", id, "state", b.State, "err", b.Error)
 }
 
