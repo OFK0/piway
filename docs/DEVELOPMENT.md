@@ -134,3 +134,25 @@ To go back to a release, run the installer again ([INSTALL.md](INSTALL.md)).
 - [RELEASING.md](RELEASING.md): cutting a release and its reproducible
   archive.
 - [API.md](API.md): what the dashboard talks to.
+
+## Chromium on a Pi without root
+
+The dashboard checks (`make e2e-deps`, `e2e/dashboard`) need a headless
+Chromium. A Pi usually has neither its system libraries nor any fonts, and
+without root you cannot install them. Download the packages and unpack them
+under your home directory instead:
+
+```sh
+B=$HOME/.cache/piway-browser; mkdir -p $B/debs $B/root; cd $B/debs
+apt-get download libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 libxcomposite1 \
+  libxdamage1 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libxrender1 libxi6 libxext6 \
+  libx11-6 libnss3 libnspr4 libasound2t64 libdrm2 libcups2t64 libpango-1.0-0 libcairo2 \
+  fonts-dejavu-core
+for f in *.deb; do dpkg-deb -x $f $B/root; done
+printf '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n<fontconfig><dir>%s</dir><cachedir>%s</cachedir></fontconfig>\n' \
+  $B/root/usr/share/fonts $B/cache > $B/fonts.conf
+export LD_LIBRARY_PATH=$B/root/usr/lib/aarch64-linux-gnu FONTCONFIG_FILE=$B/fonts.conf
+```
+
+Export the last two variables in the shell that runs `make e2e`. Without the
+fonts every text node is 0 px tall, so the layout checks see nothing.
